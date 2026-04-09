@@ -206,17 +206,35 @@ class SymanticModel:
       """Post-process auto-depth Pareto front into FitResult."""
       self.final_df = final
 
-      final['Normalized_Loss'] = (final['Loss'] - final['Loss'].min()) / (final['Loss'].max() - final['Loss'].min())
-      final['Normalized_Complexity'] = (final['Complexity'] - final['Complexity'].min()) / (final['Complexity'].max() - final['Complexity'].min())
-      final['Distance_to_Utopia'] = np.sqrt(final['Normalized_Loss']**2 + final['Normalized_Complexity']**2)
+      # Safely normalize loss and complexity to [0, 1]
+      l_min, l_max = final['Loss'].min(), final['Loss'].max()
+      final['Normalized_Loss'] = (final['Loss'] - l_min) / (l_max - l_min) if l_max > l_min else 0.0
 
-      utopia_row = final['Distance_to_Utopia'].idxmin()
+      c_min, c_max = final['Complexity'].min(), final['Complexity'].max()
+      final['Normalized_Complexity'] = (final['Complexity'] - c_min) / (c_max - c_min) if c_max > c_min else 0.0
+
+      final['Distance_to_Utopia'] = np.sqrt(final['Normalized_Loss']**2 + final['Normalized_Complexity']**2)
 
       final_edited = pd.DataFrame()
       final_edited['Loss'] = final['Loss']
       final_edited['Complexity'] = final['Complexity']
       final_edited['R2'] = final['Score']
       final_edited['Equation'] = final.apply(self.combine_equation, axis=1)
+
+      # 1. Prioritize solutions that meet convergence targets if any do
+      meets_metrics = (final_edited['Loss'] <= self.metrics[0]) & (final_edited['R2'] >= self.metrics[1])
+      if meets_metrics.any():
+          # Pick the simplest model among those that meet the metrics
+          utopia_row = final_edited[meets_metrics]['Complexity'].idxmin()
+      else:
+          # 2. Otherwise fall back to "Distance to Utopia" in normalized space
+          # Handle potential ties by picking the one with better R2
+          min_dist = final['Distance_to_Utopia'].min()
+          is_min = final['Distance_to_Utopia'] == min_dist
+          if is_min.sum() > 1:
+              utopia_row = final_edited[is_min]['R2'].idxmax()
+          else:
+              utopia_row = final['Distance_to_Utopia'].idxmin()
 
       if self.disp:
           print('Pareto set generated. Access via result.pareto_front')

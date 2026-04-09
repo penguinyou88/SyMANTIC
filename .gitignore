@@ -1,4 +1,5 @@
 local_test/
+scratch/
 .venv/
 __pycache__/
 *.pyc
