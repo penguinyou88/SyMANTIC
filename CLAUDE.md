@@ -91,6 +91,6 @@ rmse, equation, r2 = result      # Fixed-depth mode
 This project is undergoing restructuring per the plan in `.claude/plans/`:
 
 - **Phase 2**: UX/docs — `FitResult` dataclass, configurable `max_features`, input validation, scaling docs (COMPLETE)
-- **Phase 3**: Performance — vectorized operators, generate-and-screen, batched combinations, parallel quantile bins
+- **Phase 3**: Performance — O(n log n) Pareto, expand() memory fix, batched combinations, vectorized pair computation (COMPLETE)
 - **Phase 4**: L1/L2/ElasticNet regularization + classification losses (cross-entropy, hinge, focal)
 - **Phase 5**: Dynamic problem placeholders (finite difference, Neural ODE gradient estimation)

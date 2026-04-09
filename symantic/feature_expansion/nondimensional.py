@@ -743,24 +743,25 @@ class feature_space_construction:
       
       self.feature_names_binary = []
 
+      # Pre-compute pair indices and feature pairs ONCE (reused across all operators)
+      _combinations1 = list(combinations(self.columns,2))
+      _combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+      _comb_tensor = self.df_feature_values.T[_combinations2,:]
+      _x_p = _comb_tensor.permute(0,2,1)
+      del _comb_tensor
+
       for op in operators_set:
-          
+
           feature_values_reference = torch.empty(0,).to(self.device)
-          
+
           operators_reference = torch.empty(0,).to(self.device)
-          
-          combinations1 = list(combinations(self.columns,2))
 
-          combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+          combinations1 = list(_combinations1)
 
-          comb_tensor = self.df_feature_values.T[combinations2,:]
+          combinations2 = _combinations2.clone()
 
-          #Reshaping to match
-          x_p = comb_tensor.permute(0,2,1)
+          x_p = _x_p
 
-          
-          del comb_tensor
-          
           self.feature_values11 = torch.empty(self.df.shape[0],0).to(self.device)
           
           feature_names_11 = []
@@ -826,7 +827,7 @@ class feature_space_construction:
                   
                   nan_column = torch.full((op3.size(0), 1), float('nan'))
                   op3 = torch.cat((op3,nan_column),dim=1)
-                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+                  combinations2 = _combinations2.clone()
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   negative_indices = torch.nonzero(combinations2 < 0, as_tuple=False)
                   mask = torch.ones(op3.size(0), dtype=torch.bool)
@@ -901,7 +902,7 @@ class feature_space_construction:
                   
                   nan_column = torch.full((op3.size(0), 1), float('nan'))
                   op3 = torch.cat((op3,nan_column),dim=1)
-                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+                  combinations2 = _combinations2.clone()
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   negative_indices = torch.nonzero(combinations2 < 0, as_tuple=False)
                   mask = torch.ones(op3.size(0), dtype=torch.bool)
@@ -1004,7 +1005,7 @@ class feature_space_construction:
                   
                   op3 = torch.cat((op3,nan_column),dim=1)
                   
-                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+                  combinations2 = _combinations2.clone()
                   
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   
@@ -1094,7 +1095,7 @@ class feature_space_construction:
                   
                   op3 = torch.cat((op3,nan_column),dim=1)
                   
-                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
+                  combinations2 = _combinations2.clone()
                   
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   
