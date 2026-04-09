@@ -185,7 +185,7 @@ class SymanticModel:
           elif coeff == -1:
               equation_parts.append(f"-{term}")
           else:
-              equation_parts.append(f"{coeff:.4f}*{term}")
+              equation_parts.append(f"{coeff}*{term}")
       
       equation = " + ".join(equation_parts)
       
@@ -193,11 +193,11 @@ class SymanticModel:
           
           if intercept > 0:
               
-              equation = f"{equation} + {intercept:.4f}"
-          
+              equation = f"{equation} + {intercept}"
+
           else:
-              
-              equation = f"{equation} - {abs(intercept):.4f}"
+
+              equation = f"{equation} - {abs(intercept)}"
       
       return equation   
 
