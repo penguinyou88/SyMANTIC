@@ -131,6 +131,100 @@ Two bugs in `symantic/feature_expansion/nondimensional.py`:
 
 ---
 
+## Phase 4: L1/L2/ElasticNet Regularization
+
+**Goal**: Replace the combinatorial L0 search with penalized regression for faster fitting, especially at higher n_term values.
+
+### Motivation
+The L0 greedy regressor enumerates all C(k, n_terms) feature combinations, solving a separate OLS for each. For 4 terms with sis_features=20, this produces C(20,4)*10 bins = ~48,450 OLS solves. L1/ElasticNet solve ONE penalized regression and sweep the alpha path for a Pareto front — ~100 coordinate descent iterations regardless of n_terms.
+
+### New files
+
+#### `symantic/regression/penalized.py` — Non-dimensional penalized regressor
+- `PenalizedRegressor` class handling L1 (Lasso), L2 (Ridge), and ElasticNet via sklearn
+- Algorithm: SIS screening -> numpy conversion -> regularization path sweep -> Pareto front extraction -> coefficient denormalization -> 9-tuple return
+- Key methods: `_sis_screening()`, `_solve_path()`, `_path_to_pareto()`, `_format_equation()`, `regressor_fit()`
+- L1/ElasticNet: `sklearn.linear_model.lasso_path()` / `enet_path()` with warm starts
+- L2: `sklearn.linear_model.Ridge` over logspace alphas with coefficient thresholding
+- Deduplicates solutions with same sparsity pattern (keeps lowest RMSE)
+- Returns same 9-tuple as L0 regressor for full API compatibility
+
+#### `symantic/regression/penalized_dimensional.py` — Dimensional penalized regressor
+- Mirrors `penalized.py` but adds dimensional filtering before regression
+- Filters features to those matching `output_dim` (replicates `l0_greedy_dimensional.get_dimensions_list()` logic)
+
+#### `symantic/regression/factory.py` — Regressor routing
+- `get_regressor(regularization='l0', dimensional=False)` returns the appropriate Regressor class
+- L0 -> existing `Regressor` classes; L1/L2/ElasticNet -> `PenalizedRegressor` variants
+
+### Files modified
+
+#### `symantic/model.py`
+- New parameters: `regularization='l0'`, `reg_alpha=None`, `l1_ratio=0.5`, `reg_threshold=1e-4`, `n_alphas=100`
+- GPU auto-detection: `device=None` auto-selects 'cuda' when available, otherwise 'cpu'
+- All 4 fixed-depth Regressor call sites updated to use factory pattern
+- All 4 auto-depth `feature_space_construction()` calls thread `**self._reg_kwargs`
+- `validate_regularization()` called at init time
+
+#### `symantic/feature_expansion/nondimensional.py`
+- Added regularization params to `feature_space_construction.__init__()`
+- Replaced 2 internal `Regressor(...)` calls with factory-based routing via `get_regressor()`
+- Changed import from `l0_greedy.Regressor` to `factory.get_regressor`
+
+#### `symantic/feature_expansion/dimensional.py`
+- Same pattern: added reg params to `__init__()`, replaced 2 `Regressor(...)` calls with factory
+
+#### `symantic/regression/l0_greedy.py` + `l0_greedy_dimensional.py`
+- Added `**kwargs` to `__init__` signatures to accept and ignore new regularization params when selected via factory
+
+#### `symantic/validation.py`
+- Added `validate_regularization()`: validates regularization type, reg_alpha >= 0, l1_ratio in (0, 1]
+- Added `SUPPORTED_REGULARIZATIONS` frozenset
+
+#### `symantic/regression/__init__.py` + `symantic/__init__.py`
+- Added exports: `PenalizedRegressor`, `DimensionalPenalizedRegressor`, `get_regressor`
+
+### New API usage
+```python
+from symantic import SymanticModel
+
+# L1 (Lasso) — fast even at n_term=4+
+model = SymanticModel(df, operators=['+','-','*','/'],
+                      n_expansion=2, n_term=4,
+                      regularization='l1')
+result = model.fit()
+
+# ElasticNet with custom mixing
+model = SymanticModel(df, operators=['+','-','*','/'],
+                      regularization='elastic_net', l1_ratio=0.7)
+
+# L2 (Ridge) with coefficient thresholding
+model = SymanticModel(df, operators=['+','-','*','/'],
+                      regularization='l2', reg_threshold=1e-3)
+
+# Default (L0) unchanged
+model = SymanticModel(df, operators=['+','-','*','/'])  # regularization='l0'
+```
+
+### Complexity comparison
+
+| n_term | L0 (sis=20) | L1/ElasticNet |
+|--------|-------------|---------------|
+| 2 | 1,900 OLS | ~100 coord descent |
+| 3 | 11,400 OLS | ~100 coord descent |
+| 4 | 48,450 OLS | ~100 coord descent |
+| 5 | 155,040 OLS | ~100 coord descent |
+
+### Tests added
+- `tests/test_penalized_regression.py` — 28 tests:
+  - L1/L2/ElasticNet unit tests: return signature, fit quality, equation content
+  - Edge cases: single feature, high alpha (all-zero coefficients), Pareto front populated
+  - Factory routing: 6 tests for all regularization/dimensional combinations
+  - Validation: 7 tests for `validate_regularization()`
+  - Integration: 5 tests for `SymanticModel.fit()` with L1/L2/ElasticNet + L0 unchanged + invalid rejected
+
+---
+
 ## Test Summary
 
 | Phase | Tests Added | Total |
@@ -139,5 +233,6 @@ Two bugs in `symantic/feature_expansion/nondimensional.py`:
 | Phase 2 | 23 | 38 |
 | Phase 3 | 3 | 44* |
 | Bug fix (^N) | 2 | 46 |
+| Phase 4 | 28 | 77 |
 
 *3 existing tests were also updated in Phase 2 with additional assertions.

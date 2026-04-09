@@ -120,3 +120,38 @@ def validate_dimensions(dimensionality, df: pd.DataFrame) -> None:
             f"dimensionality list length ({len(dimensionality)}) must match "
             f"number of feature columns ({n_features})."
         )
+
+
+SUPPORTED_REGULARIZATIONS = frozenset(['l0', 'l1', 'l2', 'elastic_net'])
+
+
+def validate_regularization(regularization: str, reg_alpha=None, l1_ratio: float = 0.5) -> None:
+    """Validate regularization parameters.
+
+    Parameters
+    ----------
+    regularization : str
+        Must be one of 'l0', 'l1', 'l2', 'elastic_net'.
+    reg_alpha : float or None
+        Regularization strength. If not None, must be >= 0.
+    l1_ratio : float
+        L1/L2 mixing ratio for elastic_net. Must be in (0, 1].
+
+    Raises
+    ------
+    ValidationError
+        If any parameter is invalid.
+    """
+    if regularization not in SUPPORTED_REGULARIZATIONS:
+        raise ValidationError(
+            f"Unsupported regularization: '{regularization}'. "
+            f"Supported: {sorted(SUPPORTED_REGULARIZATIONS)}."
+        )
+    if reg_alpha is not None and reg_alpha < 0:
+        raise ValidationError(
+            f"reg_alpha must be >= 0, got {reg_alpha}."
+        )
+    if regularization == 'elastic_net' and not (0 < l1_ratio <= 1):
+        raise ValidationError(
+            f"l1_ratio must be in (0, 1] for elastic_net, got {l1_ratio}."
+        )

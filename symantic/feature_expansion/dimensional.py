@@ -38,7 +38,7 @@ from fractions import Fraction
 
 import math
 
-from ..regression.l0_greedy_dimensional import Regressor
+from ..regression.factory import get_regressor
 
 from ..pareto import pareto
 
@@ -49,7 +49,7 @@ class feature_space_construction:
     '''
     
     def __init__(self,df,operators=None,relational_units = None,initial_screening = None,no_of_operators=None,device='cpu',
-                 dimensionality=None,metrics=[0.06,0.995],output_dim=None, test_x=None, test_y = None,test_variables=None,disp=False,pareto=False,max_features=10000):
+                 dimensionality=None,metrics=[0.06,0.995],output_dim=None, test_x=None, test_y = None,test_variables=None,disp=False,pareto=False,max_features=10000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,**kwargs):
     
       '''
       ###########################################################################################
@@ -63,6 +63,11 @@ class feature_space_construction:
       self.no_of_operators = no_of_operators
 
       self.max_features = max_features
+
+      self._reg_kwargs = dict(
+          regularization=regularization, reg_alpha=reg_alpha,
+          l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
+      )
 
       self.df = df
       
@@ -2853,7 +2858,8 @@ class feature_space_construction:
             
             self.sis_features=None
             
-            rmse1,equation1,r21,r,c,n,intercepts,coeffs,r2_value = Regressor(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics).regressor_fit()
+            _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=True)
+            rmse1,equation1,r21,r,c,n,intercepts,coeffs,r2_value = _Reg(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics,**self._reg_kwargs).regressor_fit()
             
             additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
             
@@ -3047,7 +3053,8 @@ class feature_space_construction:
                 
                 if self.disp: print('******************************************** Size of the feature space formed in the initial expansion',self.df_feature_values.shape[1],'************************************************ \n')
                 
-                rmse,equation,r2,r,c,n,intercepts,coeffs,r2_value = Regressor(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics).regressor_fit()
+                _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=True)
+                rmse,equation,r2,r,c,n,intercepts,coeffs,r2_value = _Reg(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics,**self._reg_kwargs).regressor_fit()
                 
                 additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
                 

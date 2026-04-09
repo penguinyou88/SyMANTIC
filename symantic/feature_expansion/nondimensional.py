@@ -27,7 +27,7 @@ from fractions import Fraction
 
 from ..pareto import pareto
 
-from ..regression.l0_greedy import Regressor
+from ..regression.factory import get_regressor
 
 
 class feature_space_construction:
@@ -39,7 +39,7 @@ class feature_space_construction:
 
   ##############################################################################################################
   '''
-  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000):
+  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,**kwargs):
 
     '''
     ###########################################################################################
@@ -53,6 +53,11 @@ class feature_space_construction:
     self.no_of_operators = no_of_operators
 
     self.max_features = max_features
+
+    self._reg_kwargs = dict(
+        regularization=regularization, reg_alpha=reg_alpha,
+        l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
+    )
 
     self.df = df
     '''
@@ -1208,9 +1213,7 @@ class feature_space_construction:
     if self.no_of_operators == None:
         
         #if self.disp: print('############################################################# Implementing Automatic Expansion and construction of sparse models..!!! ######################################################################')
-        
-        from ..regression.l0_greedy import Regressor
-        
+
         i = 1
         
         start_time = time.time()
@@ -1283,7 +1286,8 @@ class feature_space_construction:
         complexity[:self.df.shape[1]] = 1
         
         
-        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
+        _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
+        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
         
         additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
         
@@ -1480,7 +1484,8 @@ class feature_space_construction:
             complexity[:self.df.shape[1]] = 1
             
             
-            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
+            _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
+            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
             
             additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
             

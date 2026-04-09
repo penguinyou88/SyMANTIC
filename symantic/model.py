@@ -14,7 +14,7 @@ from .feature_expansion import dimensional as dfcc
 
 from .results import FitResult
 
-from .validation import validate_dataframe, validate_operators, validate_dimensions
+from .validation import validate_dataframe, validate_operators, validate_dimensions, validate_regularization
 
 import sys
 
@@ -34,7 +34,7 @@ import matplotlib
 
 class SymanticModel:
 
-  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device=None,relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None):
+  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device=None,relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100):
     """Initialize SymanticModel.
 
     Parameters
@@ -73,6 +73,19 @@ class SymanticModel:
         Maximum features before stopping expansion in auto-depth mode.
         Default: 2000 for non-dimensional, 10000 for dimensional.
         Increase to search for more complex equations (at higher memory cost).
+    regularization : str
+        Regression method: 'l0' (default, exhaustive combinatorial), 'l1'
+        (Lasso), 'l2' (Ridge), or 'elastic_net'. L1/ElasticNet are much
+        faster for n_term >= 3 because they avoid enumerating all C(k,n)
+        feature combinations.
+    reg_alpha : float or None
+        Regularization strength. None = auto-select via regularization path.
+    l1_ratio : float
+        L1/L2 mixing for elastic_net (1.0 = pure L1). Default 0.5.
+    reg_threshold : float
+        For L2: zero out coefficients below this fraction of max |coef|.
+    n_alphas : int
+        Number of alpha values in the regularization path. Default 100.
     """
     # Validate inputs
     validate_dataframe(df)
@@ -80,8 +93,19 @@ class SymanticModel:
         validate_operators(operators)
     if dimensionality is not None:
         validate_dimensions(dimensionality, df)
+    validate_regularization(regularization, reg_alpha, l1_ratio)
 
     self.operators = operators
+
+    self.regularization = regularization
+    self.reg_alpha = reg_alpha
+    self.l1_ratio = l1_ratio
+    self.reg_threshold = reg_threshold
+    self.n_alphas = n_alphas
+    self._reg_kwargs = dict(
+        regularization=regularization, reg_alpha=reg_alpha,
+        l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
+    )
 
     self.df=df
 
@@ -230,7 +254,7 @@ class SymanticModel:
                 if self.no_of_operators==None:
 
                     st = time.time()
-                    rmse,equation,r2,_ = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_space()
+                    rmse,equation,r2,_ = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_space()
                     if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
                     equations.append(equation)
@@ -242,8 +266,9 @@ class SymanticModel:
                 else:
 
                     x,y,names,complexity = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_space()
-                    from .regression.l0_greedy import Regressor
-                    rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  Regressor(x,y,names,complexity,self.dimension,self.sis_features,self.device).regressor_fit()
+                    from .regression.factory import get_regressor
+                    _Reg = get_regressor(self.regularization, dimensional=False)
+                    rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  _Reg(x,y,names,complexity,self.dimension,self.sis_features,self.device,**self._reg_kwargs).regressor_fit()
 
                     equations.append(equation)
                     if i+1 == len(self.multi_task_target):
@@ -254,7 +279,7 @@ class SymanticModel:
         elif self.no_of_operators==None:
 
             st = time.time()
-            rmse,equation,r2,final = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_space()
+            rmse,equation,r2,final = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_space()
             if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
             return self._build_pareto_result(final)
@@ -262,8 +287,9 @@ class SymanticModel:
         else:
 
             x,y,names,complexity = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,disp=self.disp,max_features=self.max_features).feature_space()
-            from .regression.l0_greedy import Regressor
-            rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  Regressor(x,y,names,complexity,self.dimension,self.sis_features,self.device).regressor_fit()
+            from .regression.factory import get_regressor
+            _Reg = get_regressor(self.regularization, dimensional=False)
+            rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  _Reg(x,y,names,complexity,self.dimension,self.sis_features,self.device,**self._reg_kwargs).regressor_fit()
 
             return FitResult(rmse=rmse, equation=equation, r2=r2)
 
@@ -286,7 +312,7 @@ class SymanticModel:
                 if self.no_of_operators==None:
 
                     st = time.time()
-                    rmse,equation,r2,final = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_expansion()
+                    rmse,equation,r2,final = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_expansion()
                     if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
                     equations.append(equation)
@@ -298,8 +324,9 @@ class SymanticModel:
                 else:
 
                     x,y,names,dim,complexity = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_expansion()
-                    from .regression.l0_greedy_dimensional import Regressor
-                    rmse,equation,r2,_,_,_,_,_,_ = Regressor(x,y,names,dim,complexity,self.dimension,self.sis_features,self.device,self.output_dim,disp=self.disp,pareto=self.pareto).regressor_fit()
+                    from .regression.factory import get_regressor
+                    _Reg = get_regressor(self.regularization, dimensional=True)
+                    rmse,equation,r2,_,_,_,_,_,_ = _Reg(x,y,names,dim,complexity,self.dimension,self.sis_features,self.device,self.output_dim,disp=self.disp,pareto=self.pareto,**self._reg_kwargs).regressor_fit()
 
                     equations.append(equation)
                     if i+1 == len(self.multi_task_target):
@@ -310,7 +337,7 @@ class SymanticModel:
         if self.no_of_operators==None:
 
             st = time.time()
-            rmse,equation,r2,final = dfcc.feature_space_construction(self.df,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_expansion()
+            rmse,equation,r2,final = dfcc.feature_space_construction(self.df,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_expansion()
             if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
             return self._build_pareto_result(final)
@@ -318,8 +345,9 @@ class SymanticModel:
         else:
 
             x,y,names,dim,complexity = dfcc.feature_space_construction(self.df,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,disp=self.disp,pareto=self.pareto,max_features=self.max_features).feature_expansion()
-            from .regression.l0_greedy_dimensional import Regressor
-            rmse,equation,r2,_,_,_,_,_,_ = Regressor(x,y,names,dim,complexity,self.dimension,self.sis_features,self.device,self.output_dim,disp=self.disp,pareto=self.pareto).regressor_fit()
+            from .regression.factory import get_regressor
+            _Reg = get_regressor(self.regularization, dimensional=True)
+            rmse,equation,r2,_,_,_,_,_,_ = _Reg(x,y,names,dim,complexity,self.dimension,self.sis_features,self.device,self.output_dim,disp=self.disp,pareto=self.pareto,**self._reg_kwargs).regressor_fit()
 
             return FitResult(rmse=rmse, equation=equation, r2=r2)
         
