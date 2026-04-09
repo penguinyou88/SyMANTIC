@@ -6,11 +6,25 @@ import pandas as pd
 from .exceptions import ValidationError
 
 # Operators supported by the feature expansion modules.
+# Static operators matched exactly.
 SUPPORTED_OPERATORS = frozenset([
     '+', '-', '*', '/',
-    'exp', 'log', 'sqrt', 'sin', 'cos', 'tan',
-    '^2', '^3', 'abs', 'inv',
+    'exp', 'exp(-1)', 'ln', 'log', 'sin', 'cos', 'tan',
+    'sinh', 'cosh', 'tanh',
+    '^-1', '+1', '-1', '/2',
 ])
+
+
+def _is_dynamic_operator(op: str) -> bool:
+    """Check if op matches a dynamic pattern like pow(N) or ^N."""
+    import re
+    # ^N pattern: e.g. ^2, ^3, ^0.5, ^-2
+    if re.fullmatch(r'\^-?[\d.]+', op):
+        return True
+    # pow(N) pattern: e.g. pow(2), pow(1/3), pow(0.5)
+    if re.fullmatch(r'pow\([^)]+\)', op):
+        return True
+    return False
 
 
 def validate_dataframe(df: pd.DataFrame) -> None:
@@ -70,11 +84,15 @@ def validate_operators(operators: list) -> None:
         raise ValidationError(
             f"Expected a list of operators, got {type(operators).__name__}."
         )
-    unsupported = set(operators) - SUPPORTED_OPERATORS
+    unsupported = {
+        op for op in operators
+        if op not in SUPPORTED_OPERATORS and not _is_dynamic_operator(op)
+    }
     if unsupported:
         raise ValidationError(
             f"Unsupported operators: {unsupported}. "
-            f"Supported operators: {sorted(SUPPORTED_OPERATORS)}."
+            f"Supported operators: {sorted(SUPPORTED_OPERATORS)}, "
+            f"plus pow(N) and ^N patterns (e.g. pow(2), ^0.5)."
         )
 
 

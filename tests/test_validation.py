@@ -60,6 +60,21 @@ class TestValidateOperators:
         with pytest.raises(ValidationError, match="Unsupported"):
             validate_operators(['+', 'modulo'])
 
+    def test_pow_pattern(self):
+        validate_operators(['+', 'pow(2)'])  # should not raise
+        validate_operators(['+', 'pow(1/3)'])  # should not raise
+        validate_operators(['+', 'pow(0.5)'])  # should not raise
+
+    def test_caret_pattern(self):
+        validate_operators(['+', '^2'])  # should not raise
+        validate_operators(['+', '^0.5'])  # should not raise
+        validate_operators(['+', '^-1'])  # should not raise (static entry)
+
+    def test_all_unary_operators(self):
+        """All unary operators accepted by the feature expansion module."""
+        validate_operators(['exp', 'ln', 'log', 'sin', 'cos', 'sinh', 'cosh', 'tanh',
+                            '^-1', 'exp(-1)', '+1', '-1', '/2', 'pow(2)', '^2'])
+
 
 class TestValidateDimensions:
     """Test validate_dimensions()."""

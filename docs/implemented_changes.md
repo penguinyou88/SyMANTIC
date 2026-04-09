@@ -108,6 +108,29 @@ Tracks all improvements made to SyMANTIC across restructuring phases.
 
 ---
 
+## Bug Fix: `^N` operator crash in `single_variable()`
+
+**Issue**: Using power operators like `'^2'` in the operators list caused a `RuntimeError: Sizes of tensors must match except in dimension 0` during the second expansion in auto-depth mode. Reported via `local_test/SyMANTIC-DT5.ipynb`.
+
+### Root cause
+Two bugs in `symantic/feature_expansion/nondimensional.py`:
+
+1. **Missing `^N` handler in `single_variable()`**: The method had handlers for `'^-1'` (reciprocal) and `"pow(N)"` format, but no handler for `'^N'` format (e.g., `'^2'`, `'^3'`, `'^0.5'`). When `'^2'` was passed, it fell through all `if`/`elif` branches without being processed, leaving `operators_reference` as an empty 1D tensor.
+
+2. **Wrong-direction padding in operator concat logic**: The `else` branch at the end of both `single_variable()` and `combinations()` always padded `self.operators_final` wider (adding NaN columns), but should pad whichever tensor is narrower. When `operators_reference` was narrower (1 column) than `self.operators_final` (5+ columns from binary operators), padding `self.operators_final` made the mismatch worse, causing `torch.cat` to fail.
+
+### Fixes applied (`symantic/feature_expansion/nondimensional.py`)
+- Added `^N` operator handler (after `'^-1'`): matches `op.startswith('^') and op != '^-1'`, parses exponent via `float(op[1:])`, applies `torch.pow(self.df_feature_values, exponent)` with proper operator tracking for both `i==1` and `i>=2` expansion levels
+- Fixed padding logic in `single_variable()` (line ~738): now pads the narrower tensor instead of always padding `self.operators_final`
+- Fixed same padding logic in `combinations()` (line ~1166): same bidirectional padding fix
+
+### Tests added
+- `tests/test_model.py` — 2 new tests:
+  - `test_power_operator_fit`: `'^2'` with fixed-depth mode
+  - `test_power_operator_auto_depth`: `'^2'` with auto-depth mode (reproduces the DT5 notebook crash)
+
+---
+
 ## Test Summary
 
 | Phase | Tests Added | Total |
@@ -115,5 +138,6 @@ Tracks all improvements made to SyMANTIC across restructuring phases.
 | Phase 1 | 15 | 15 |
 | Phase 2 | 23 | 38 |
 | Phase 3 | 3 | 44* |
+| Bug fix (^N) | 2 | 46 |
 
 *3 existing tests were also updated in Phase 2 with additional assertions.

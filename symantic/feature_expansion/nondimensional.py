@@ -582,7 +582,36 @@ class feature_space_construction:
                 initial_duplicates[:,-1]= self.operators_dict[op]
                 operators_reference = torch.cat((initial_duplicates,operators_reference),dim=0)
             feature_values_reference = torch.cat((feature_values_reference, new_ref), dim=0)
-            
+
+
+        # Performs the power transformation for ^N operators (e.g., ^2, ^3, ^0.5)
+        elif op.startswith('^') and op != '^-1':
+
+            exponent = float(op[1:])
+
+            transformation = torch.pow(self.df_feature_values, exponent)
+
+            self.feature_values_11 = torch.cat((self.feature_values_11, transformation), dim=1)
+
+            feature_names_12.extend(list(map(lambda x: '((' + x + ')' + op + ')', self.columns)))
+
+            if i == 1:
+                new_ref = self.reference_tensor[:len(self.columns),:]
+                operators_reference = torch.cat((operators_reference, torch.full((new_ref.shape[0],), self.operators_dict[op])))
+
+            else:
+
+                new_ref = self.reference_tensor[:self.df_feature_values.shape[1],:]
+                if self.operators_final.dim()==1:
+                    self.operators_final = self.operators_final.unsqueeze(1)
+                operators_reference = self.operators_final[self.df.shape[1]:self.df_feature_values.shape[1],:].clone()
+
+
+                initial_duplicates = self.operators_final[:self.df.shape[1],:].clone()
+                operators_reference[:,-1]= self.operators_dict[op]
+                initial_duplicates[:,-1]= self.operators_dict[op]
+                operators_reference = torch.cat((initial_duplicates,operators_reference),dim=0)
+            feature_values_reference = torch.cat((feature_values_reference, new_ref), dim=0)
 
 
         # Performs the Inverse exponential transformation of the given feature space
@@ -707,25 +736,28 @@ class feature_space_construction:
         if operators_reference.dim()==1: operators_reference = operators_reference.unsqueeze(1)
         
         if self.operators_final.shape[1] == operators_reference.shape[1]:
-        
+
             self.operators_final = torch.cat((self.operators_final, operators_reference))
-            
+
         else:
-            
-            additional_columns = torch.full((self.operators_final.size(0), abs(operators_reference.shape[1]-self.operators_final.shape[1])), float('nan'))
-            
-            self.operators_final = torch.cat((self.operators_final,additional_columns),dim=1)
-            
+            # Pad whichever tensor is narrower so both have matching column count
+            if operators_reference.shape[1] > self.operators_final.shape[1]:
+                additional_columns = torch.full((self.operators_final.size(0), operators_reference.shape[1] - self.operators_final.shape[1]), float('nan'))
+                self.operators_final = torch.cat((self.operators_final, additional_columns), dim=1)
+            else:
+                additional_columns = torch.full((operators_reference.size(0), self.operators_final.shape[1] - operators_reference.shape[1]), float('nan'))
+                operators_reference = torch.cat((operators_reference, additional_columns), dim=1)
+
             self.operators_final = torch.cat((self.operators_final, operators_reference))
-        
+
         self.operators_final = self.clean_tensor(self.operators_final)
-        
-        
+
+
 
         del self.feature_values_11, feature_names_12
 
 
-        
+
     return self.feature_values_unary, self.feature_names_unary
 
 
@@ -1132,18 +1164,20 @@ class feature_space_construction:
           if operators_reference.dim()==1: operators_reference = operators_reference.unsqueeze(1)
           
           if self.operators_final.shape[1] == operators_reference.shape[1]:
-          
+
               self.operators_final = torch.cat((self.operators_final, operators_reference))
-              
+
           else:
-              
-              additional_columns = torch.full((self.operators_final.size(0), abs(operators_reference.shape[1]-self.operators_final.shape[1])), float('nan'))
-              
-              self.operators_final = torch.cat((self.operators_final,additional_columns),dim=1)
-              
+              # Pad whichever tensor is narrower so both have matching column count
+              if operators_reference.shape[1] > self.operators_final.shape[1]:
+                  additional_columns = torch.full((self.operators_final.size(0), operators_reference.shape[1] - self.operators_final.shape[1]), float('nan'))
+                  self.operators_final = torch.cat((self.operators_final, additional_columns), dim=1)
+              else:
+                  additional_columns = torch.full((operators_reference.size(0), self.operators_final.shape[1] - operators_reference.shape[1]), float('nan'))
+                  operators_reference = torch.cat((operators_reference, additional_columns), dim=1)
+
               self.operators_final = torch.cat((self.operators_final, operators_reference))
-              
-          
+
           self.operators_final = self.clean_tensor(self.operators_final)
           
           

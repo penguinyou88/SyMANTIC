@@ -20,6 +20,8 @@ import sys
 
 import time
 
+import torch
+
 import numpy as np
 
 import pandas as pd
@@ -32,7 +34,7 @@ import matplotlib
 
 class SymanticModel:
 
-  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device='cpu',relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None):
+  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device=None,relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None):
     """Initialize SymanticModel.
 
     Parameters
@@ -50,8 +52,9 @@ class SymanticModel:
         Max terms per equation. Default 3.
     sis_features : int
         Number of features to keep via SIS screening. Default 20.
-    device : str
-        'cpu' or 'cuda'. Default 'cpu'.
+    device : str or None
+        'cpu', 'cuda', or None (auto-detect). Default None selects
+        'cuda' when a GPU is available, otherwise 'cpu'.
     relational_units : list or None
         Unit relationships for dimensional regression.
     initial_screening : tuple or None
@@ -84,6 +87,8 @@ class SymanticModel:
 
     self.no_of_operators = n_expansion
 
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
     self.device = device
 
     if n_term == None: self.dimension = 3

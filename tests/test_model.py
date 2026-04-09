@@ -150,3 +150,42 @@ class TestSymanticModelFit:
         # Also accessible via attributes
         assert result.pareto_front is not None
         assert result.complexity is not None
+
+    def test_power_operator_fit(self, small_df):
+        """Test that ^2 unary operator works in fixed-depth mode.
+
+        Regression test for tensor shape mismatch when using ^N operators.
+        """
+        from symantic import SymanticModel
+        model = SymanticModel(
+            df=small_df,
+            operators=['+', '*', '^2'],
+            n_expansion=2,
+            n_term=2,
+            sis_features=5,
+        )
+        result = model.fit()
+        assert result is not None
+        assert isinstance(result, FitResult)
+        rmse, equation, r2 = result
+        assert isinstance(rmse, float)
+        assert rmse >= 0
+
+    def test_power_operator_auto_depth(self, simple_linear_df):
+        """Test that ^2 unary operator works in auto-depth mode.
+
+        Regression test for the DT5 notebook crash.
+        """
+        from symantic import SymanticModel
+        model = SymanticModel(
+            df=simple_linear_df,
+            operators=['+', '-', '*', '/', '^2'],
+            n_expansion=None,
+            n_term=2,
+            sis_features=5,
+            metrics=[0.5, 0.9],
+        )
+        result = model.fit()
+        assert isinstance(result, FitResult)
+        res, full_pareto = result
+        assert 'utopia' in res
