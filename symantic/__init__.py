@@ -16,6 +16,8 @@ from .feature_expansion.dimensional import feature_space_construction as Dimensi
 from .regression.l0_greedy import Regressor as NonDimensionalRegressor
 from .regression.l0_greedy_dimensional import Regressor as DimensionalRegressor
 from .regression.screening import Regressor as DimensionalScreeningRegressor
+from .regression.penalized import PenalizedRegressor
+from .regression.factory import get_regressor
 
 # Backward-compatible default aliases (non-dimensional versions)
 from .feature_expansion.nondimensional import feature_space_construction

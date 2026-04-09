@@ -27,7 +27,7 @@ from fractions import Fraction
 
 from ..pareto import pareto
 
-from ..regression.l0_greedy import Regressor
+from ..regression.factory import get_regressor
 
 
 class feature_space_construction:
@@ -39,7 +39,7 @@ class feature_space_construction:
 
   ##############################################################################################################
   '''
-  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000):
+  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,level_pruning=False,**kwargs):
 
     '''
     ###########################################################################################
@@ -53,6 +53,13 @@ class feature_space_construction:
     self.no_of_operators = no_of_operators
 
     self.max_features = max_features
+
+    self.level_pruning = level_pruning
+
+    self._reg_kwargs = dict(
+        regularization=regularization, reg_alpha=reg_alpha,
+        l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
+    )
 
     self.df = df
     '''
@@ -1196,6 +1203,50 @@ class feature_space_construction:
 
   '''
 
+  def _prune_features(self):
+    """Prune derived features to top (sis_features * n_term) by SIS score.
+
+    Uses Sure Independence Screening: |X^T @ y| (absolute correlation with
+    target) to rank features.  Always retains the original base features
+    (first self.df.shape[1] columns).  Only active when self.level_pruning
+    is True.
+    """
+    n_base = self.df.shape[1]  # original base features
+    n_total = self.df_feature_values.shape[1]
+    keep_k = self.sis_features * self.dimension  # match regressor SIS budget
+    if n_total <= n_base + keep_k:
+        return  # nothing to prune
+
+    # SIS scores: |X^T @ y| for all features
+    y_centered = self.Target_column - self.Target_column.mean()
+    x_centered = self.df_feature_values - self.df_feature_values.mean(dim=0)
+    scores = torch.abs(torch.mm(y_centered.unsqueeze(0), x_centered)).flatten()
+    scores[torch.isnan(scores)] = 0.0
+
+    # Top (sis_features * n_term) among derived features only
+    derived_scores = scores[n_base:]
+    k = min(keep_k, len(derived_scores))
+    _, top_derived = torch.topk(derived_scores, k=k)
+    top_derived_idx = top_derived + n_base
+
+    # Combine: all base features + top derived
+    keep = torch.cat([torch.arange(n_base, device=self.device), top_derived_idx.to(self.device)])
+    keep, _ = torch.sort(keep)
+
+    # Subset all state variables in sync
+    self.df_feature_values = self.df_feature_values[:, keep]
+    self.columns = [self.columns[i] for i in keep.tolist()]
+    self.reference_tensor = self.reference_tensor[keep, :]
+    if self.operators_final.dim() == 1:
+        self.operators_final = self.operators_final[keep]
+    else:
+        self.operators_final = self.operators_final[keep, :]
+
+    if self.disp:
+        print(f'*** Level pruning (SIS top {self.sis_features}x{self.dimension}={keep_k}): '
+              f'{n_total} -> {len(keep)} features '
+              f'({n_base} base + {k} derived) ***\n')
+
   def feature_space(self):
 
 
@@ -1208,9 +1259,7 @@ class feature_space_construction:
     if self.no_of_operators == None:
         
         #if self.disp: print('############################################################# Implementing Automatic Expansion and construction of sparse models..!!! ######################################################################')
-        
-        from ..regression.l0_greedy import Regressor
-        
+
         i = 1
         
         start_time = time.time()
@@ -1283,7 +1332,8 @@ class feature_space_construction:
         complexity[:self.df.shape[1]] = 1
         
         
-        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
+        _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
+        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
         
         additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
         
@@ -1341,12 +1391,12 @@ class feature_space_construction:
                 self.update_pareto_coeff = torch.cat((self.update_pareto_coeff, coeffs))
         
         self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-        
-        
-        
-        
-        
-        if rmse1 <= self.rmse_metric and r21 >= self.r2_metric: 
+
+        # Prune feature space between levels to cap memory growth
+        if self.level_pruning:
+            self._prune_features()
+
+        if rmse1 <= self.rmse_metric and r21 >= self.r2_metric:
         
             
             if self.pareto: final_pareto = 'yes'
@@ -1480,7 +1530,8 @@ class feature_space_construction:
             complexity[:self.df.shape[1]] = 1
             
             
-            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
+            _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
+            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
             
             additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
             
@@ -1539,11 +1590,14 @@ class feature_space_construction:
                 
             
             self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-            
-           
+
+            # Prune feature space between levels to cap memory growth
+            if self.level_pruning:
+                self._prune_features()
+
             if rmse <= self.rmse_metric and r2 >= self.r2_metric:
-                
-                
+
+
                 break
             if i >=2 and self.df_feature_values.shape[1]>self.max_features:
 
@@ -1560,6 +1614,21 @@ class feature_space_construction:
                 )
 
                 break
+
+            # With level_pruning, feature count stays small so max_features
+            # never triggers.  Stop if no RMSE improvement or depth >= 10.
+            if self.level_pruning:
+                if i >= 10:
+                    if self.disp:
+                        print(f'*** Level pruning: reached max depth {i}, stopping. ***\n')
+                    break
+                if hasattr(self, '_prev_rmse') and rmse >= self._prev_rmse:
+                    if self.disp:
+                        print(f'*** Level pruning: RMSE did not improve '
+                              f'({self._prev_rmse:.6f} -> {rmse:.6f}), stopping. ***\n')
+                    break
+                self._prev_rmse = rmse
+
             i = i+1
 
 

@@ -39,7 +39,7 @@ from ..pareto import pareto
 
 class Regressor:
     
-    def __init__(self,x,y,names,dimensionality,complexity,output_dim = None,dimension=None,sis_features=10,device='cpu',metrics =[0.06,0.995],disp=False,quantiles = None):
+    def __init__(self,x,y,names,dimensionality,complexity,output_dim = None,dimension=None,sis_features=10,device='cpu',metrics =[0.06,0.995],disp=False,quantiles = None,**kwargs):
 
         '''
         ###################################################################################################################
