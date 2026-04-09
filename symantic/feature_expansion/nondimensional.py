@@ -27,7 +27,7 @@ from fractions import Fraction
 
 from ..pareto import pareto
 
-from ..regression.factory import get_regressor
+from ..regression.l0_greedy import Regressor
 
 
 class feature_space_construction:
@@ -39,7 +39,7 @@ class feature_space_construction:
 
   ##############################################################################################################
   '''
-  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,level_pruning=False,**kwargs):
+  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False):
 
     '''
     ###########################################################################################
@@ -51,15 +51,6 @@ class feature_space_construction:
     ###########################################################################################
     '''
     self.no_of_operators = no_of_operators
-
-    self.max_features = max_features
-
-    self.level_pruning = level_pruning
-
-    self._reg_kwargs = dict(
-        regularization=regularization, reg_alpha=reg_alpha,
-        l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
-    )
 
     self.df = df
     '''
@@ -589,36 +580,7 @@ class feature_space_construction:
                 initial_duplicates[:,-1]= self.operators_dict[op]
                 operators_reference = torch.cat((initial_duplicates,operators_reference),dim=0)
             feature_values_reference = torch.cat((feature_values_reference, new_ref), dim=0)
-
-
-        # Performs the power transformation for ^N operators (e.g., ^2, ^3, ^0.5)
-        elif op.startswith('^') and op != '^-1':
-
-            exponent = float(op[1:])
-
-            transformation = torch.pow(self.df_feature_values, exponent)
-
-            self.feature_values_11 = torch.cat((self.feature_values_11, transformation), dim=1)
-
-            feature_names_12.extend(list(map(lambda x: '((' + x + ')' + op + ')', self.columns)))
-
-            if i == 1:
-                new_ref = self.reference_tensor[:len(self.columns),:]
-                operators_reference = torch.cat((operators_reference, torch.full((new_ref.shape[0],), self.operators_dict[op])))
-
-            else:
-
-                new_ref = self.reference_tensor[:self.df_feature_values.shape[1],:]
-                if self.operators_final.dim()==1:
-                    self.operators_final = self.operators_final.unsqueeze(1)
-                operators_reference = self.operators_final[self.df.shape[1]:self.df_feature_values.shape[1],:].clone()
-
-
-                initial_duplicates = self.operators_final[:self.df.shape[1],:].clone()
-                operators_reference[:,-1]= self.operators_dict[op]
-                initial_duplicates[:,-1]= self.operators_dict[op]
-                operators_reference = torch.cat((initial_duplicates,operators_reference),dim=0)
-            feature_values_reference = torch.cat((feature_values_reference, new_ref), dim=0)
+            
 
 
         # Performs the Inverse exponential transformation of the given feature space
@@ -743,28 +705,25 @@ class feature_space_construction:
         if operators_reference.dim()==1: operators_reference = operators_reference.unsqueeze(1)
         
         if self.operators_final.shape[1] == operators_reference.shape[1]:
-
+        
             self.operators_final = torch.cat((self.operators_final, operators_reference))
-
+            
         else:
-            # Pad whichever tensor is narrower so both have matching column count
-            if operators_reference.shape[1] > self.operators_final.shape[1]:
-                additional_columns = torch.full((self.operators_final.size(0), operators_reference.shape[1] - self.operators_final.shape[1]), float('nan'))
-                self.operators_final = torch.cat((self.operators_final, additional_columns), dim=1)
-            else:
-                additional_columns = torch.full((operators_reference.size(0), self.operators_final.shape[1] - operators_reference.shape[1]), float('nan'))
-                operators_reference = torch.cat((operators_reference, additional_columns), dim=1)
-
+            
+            additional_columns = torch.full((self.operators_final.size(0), abs(operators_reference.shape[1]-self.operators_final.shape[1])), float('nan'))
+            
+            self.operators_final = torch.cat((self.operators_final,additional_columns),dim=1)
+            
             self.operators_final = torch.cat((self.operators_final, operators_reference))
-
+        
         self.operators_final = self.clean_tensor(self.operators_final)
-
-
+        
+        
 
         del self.feature_values_11, feature_names_12
 
 
-
+        
     return self.feature_values_unary, self.feature_names_unary
 
 
@@ -782,25 +741,24 @@ class feature_space_construction:
       
       self.feature_names_binary = []
 
-      # Pre-compute pair indices and feature pairs ONCE (reused across all operators)
-      _combinations1 = list(combinations(self.columns,2))
-      _combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
-      _comb_tensor = self.df_feature_values.T[_combinations2,:]
-      _x_p = _comb_tensor.permute(0,2,1)
-      del _comb_tensor
-
       for op in operators_set:
-
+          
           feature_values_reference = torch.empty(0,).to(self.device)
-
+          
           operators_reference = torch.empty(0,).to(self.device)
+          
+          combinations1 = list(combinations(self.columns,2))
 
-          combinations1 = list(_combinations1)
+          combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
 
-          combinations2 = _combinations2.clone()
+          comb_tensor = self.df_feature_values.T[combinations2,:]
 
-          x_p = _x_p
+          #Reshaping to match
+          x_p = comb_tensor.permute(0,2,1)
 
+          
+          del comb_tensor
+          
           self.feature_values11 = torch.empty(self.df.shape[0],0).to(self.device)
           
           feature_names_11 = []
@@ -866,7 +824,7 @@ class feature_space_construction:
                   
                   nan_column = torch.full((op3.size(0), 1), float('nan'))
                   op3 = torch.cat((op3,nan_column),dim=1)
-                  combinations2 = _combinations2.clone()
+                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   negative_indices = torch.nonzero(combinations2 < 0, as_tuple=False)
                   mask = torch.ones(op3.size(0), dtype=torch.bool)
@@ -941,7 +899,7 @@ class feature_space_construction:
                   
                   nan_column = torch.full((op3.size(0), 1), float('nan'))
                   op3 = torch.cat((op3,nan_column),dim=1)
-                  combinations2 = _combinations2.clone()
+                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   negative_indices = torch.nonzero(combinations2 < 0, as_tuple=False)
                   mask = torch.ones(op3.size(0), dtype=torch.bool)
@@ -1044,7 +1002,7 @@ class feature_space_construction:
                   
                   op3 = torch.cat((op3,nan_column),dim=1)
                   
-                  combinations2 = _combinations2.clone()
+                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
                   
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   
@@ -1134,7 +1092,7 @@ class feature_space_construction:
                   
                   op3 = torch.cat((op3,nan_column),dim=1)
                   
-                  combinations2 = _combinations2.clone()
+                  combinations2 = torch.combinations(torch.arange(self.df_feature_values.shape[1]),2)
                   
                   combinations2[non_indices] = combinations2[non_indices] - self.df.shape[1]
                   
@@ -1171,20 +1129,18 @@ class feature_space_construction:
           if operators_reference.dim()==1: operators_reference = operators_reference.unsqueeze(1)
           
           if self.operators_final.shape[1] == operators_reference.shape[1]:
-
+          
               self.operators_final = torch.cat((self.operators_final, operators_reference))
-
+              
           else:
-              # Pad whichever tensor is narrower so both have matching column count
-              if operators_reference.shape[1] > self.operators_final.shape[1]:
-                  additional_columns = torch.full((self.operators_final.size(0), operators_reference.shape[1] - self.operators_final.shape[1]), float('nan'))
-                  self.operators_final = torch.cat((self.operators_final, additional_columns), dim=1)
-              else:
-                  additional_columns = torch.full((operators_reference.size(0), self.operators_final.shape[1] - operators_reference.shape[1]), float('nan'))
-                  operators_reference = torch.cat((operators_reference, additional_columns), dim=1)
-
+              
+              additional_columns = torch.full((self.operators_final.size(0), abs(operators_reference.shape[1]-self.operators_final.shape[1])), float('nan'))
+              
+              self.operators_final = torch.cat((self.operators_final,additional_columns),dim=1)
+              
               self.operators_final = torch.cat((self.operators_final, operators_reference))
-
+              
+          
           self.operators_final = self.clean_tensor(self.operators_final)
           
           
@@ -1203,50 +1159,6 @@ class feature_space_construction:
 
   '''
 
-  def _prune_features(self):
-    """Prune derived features to top (sis_features * n_term) by SIS score.
-
-    Uses Sure Independence Screening: |X^T @ y| (absolute correlation with
-    target) to rank features.  Always retains the original base features
-    (first self.df.shape[1] columns).  Only active when self.level_pruning
-    is True.
-    """
-    n_base = self.df.shape[1]  # original base features
-    n_total = self.df_feature_values.shape[1]
-    keep_k = self.sis_features * self.dimension  # match regressor SIS budget
-    if n_total <= n_base + keep_k:
-        return  # nothing to prune
-
-    # SIS scores: |X^T @ y| for all features
-    y_centered = self.Target_column - self.Target_column.mean()
-    x_centered = self.df_feature_values - self.df_feature_values.mean(dim=0)
-    scores = torch.abs(torch.mm(y_centered.unsqueeze(0), x_centered)).flatten()
-    scores[torch.isnan(scores)] = 0.0
-
-    # Top (sis_features * n_term) among derived features only
-    derived_scores = scores[n_base:]
-    k = min(keep_k, len(derived_scores))
-    _, top_derived = torch.topk(derived_scores, k=k)
-    top_derived_idx = top_derived + n_base
-
-    # Combine: all base features + top derived
-    keep = torch.cat([torch.arange(n_base, device=self.device), top_derived_idx.to(self.device)])
-    keep, _ = torch.sort(keep)
-
-    # Subset all state variables in sync
-    self.df_feature_values = self.df_feature_values[:, keep]
-    self.columns = [self.columns[i] for i in keep.tolist()]
-    self.reference_tensor = self.reference_tensor[keep, :]
-    if self.operators_final.dim() == 1:
-        self.operators_final = self.operators_final[keep]
-    else:
-        self.operators_final = self.operators_final[keep, :]
-
-    if self.disp:
-        print(f'*** Level pruning (SIS top {self.sis_features}x{self.dimension}={keep_k}): '
-              f'{n_total} -> {len(keep)} features '
-              f'({n_base} base + {k} derived) ***\n')
-
   def feature_space(self):
 
 
@@ -1259,7 +1171,9 @@ class feature_space_construction:
     if self.no_of_operators == None:
         
         #if self.disp: print('############################################################# Implementing Automatic Expansion and construction of sparse models..!!! ######################################################################')
-
+        
+        from ..regression.l0_greedy import Regressor
+        
         i = 1
         
         start_time = time.time()
@@ -1332,8 +1246,7 @@ class feature_space_construction:
         complexity[:self.df.shape[1]] = 1
         
         
-        _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
-        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
+        rmse1, equation1,r21,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
         
         additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
         
@@ -1391,12 +1304,12 @@ class feature_space_construction:
                 self.update_pareto_coeff = torch.cat((self.update_pareto_coeff, coeffs))
         
         self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-
-        # Prune feature space between levels to cap memory growth
-        if self.level_pruning:
-            self._prune_features()
-
-        if rmse1 <= self.rmse_metric and r21 >= self.r2_metric:
+        
+        
+        
+        
+        
+        if rmse1 <= self.rmse_metric and r21 >= self.r2_metric: 
         
             
             if self.pareto: final_pareto = 'yes'
@@ -1530,8 +1443,7 @@ class feature_space_construction:
             complexity[:self.df.shape[1]] = 1
             
             
-            _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=False)
-            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  _Reg(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics,**self._reg_kwargs).regressor_fit()
+            rmse, equation,r2,r,c,n,intercepts,coeffs,r2_value =  Regressor(self.df_feature_values,self.Target_column,self.columns,complexity,self.dimension,self.sis_features,self.device,metrics = self.metrics).regressor_fit()
             
             additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
             
@@ -1590,45 +1502,26 @@ class feature_space_construction:
                 
             
             self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-
-            # Prune feature space between levels to cap memory growth
-            if self.level_pruning:
-                self._prune_features()
-
+            
+           
             if rmse <= self.rmse_metric and r2 >= self.r2_metric:
-
-
+                
+                
                 break
-            if i >=2 and self.df_feature_values.shape[1]>self.max_features:
-
-                if self.disp:
-                    print(f'Expanded feature space ({self.df_feature_values.shape[1]} features) '
-                          f'exceeds max_features={self.max_features}. Stopping expansion.')
-
-                import warnings
-                warnings.warn(
-                    f"Feature expansion stopped: {self.df_feature_values.shape[1]} features "
-                    f"exceeds max_features={self.max_features}. Increase max_features to allow "
-                    f"deeper expansion.",
-                    stacklevel=2,
-                )
-
-                break
-
-            # With level_pruning, feature count stays small so max_features
-            # never triggers.  Stop if no RMSE improvement or depth >= 10.
-            if self.level_pruning:
-                if i >= 10:
-                    if self.disp:
-                        print(f'*** Level pruning: reached max depth {i}, stopping. ***\n')
+            if i >=2 and self.df_feature_values.shape[1]>2000:
+                
+                print('Expanded feature space is::',self.df_feature_values.shape[1])
+                
+                
+                print('!!Warning:: Further feature expansions result in memory consumption, Please provide the input to consider feature expansion or to exit the run with the sparse models created!!!')
+                
+                response = input("Do you wish to continue (yes/no)? ").strip().lower()
+                
+                if response == 'no' or response == 'n': 
+                    
+                    print("Exiting based on user input.")
+                    
                     break
-                if hasattr(self, '_prev_rmse') and rmse >= self._prev_rmse:
-                    if self.disp:
-                        print(f'*** Level pruning: RMSE did not improve '
-                              f'({self._prev_rmse:.6f} -> {rmse:.6f}), stopping. ***\n')
-                    break
-                self._prev_rmse = rmse
-
             i = i+1
 
 

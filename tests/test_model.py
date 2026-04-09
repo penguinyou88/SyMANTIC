@@ -4,9 +4,6 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from symantic.results import FitResult
-from symantic.exceptions import ValidationError
-
 
 class TestSymanticModelImport:
     """Test that the package can be imported correctly."""
@@ -28,12 +25,6 @@ class TestSymanticModelImport:
         assert DimensionalFeatureExpander is not None
         assert NonDimensionalRegressor is not None
         assert DimensionalRegressor is not None
-
-    def test_import_new_classes(self):
-        from symantic import FitResult, FeatureSpaceLimitError, ValidationError
-        assert FitResult is not None
-        assert FeatureSpaceLimitError is not None
-        assert ValidationError is not None
 
     def test_no_namespace_collision(self):
         """Verify that qualified imports are distinct classes."""
@@ -68,26 +59,6 @@ class TestSymanticModelInit:
         assert model.dimension == 3
         assert model.sis_features == 20
 
-    def test_max_features_default_nondim(self, small_df):
-        from symantic import SymanticModel
-        model = SymanticModel(df=small_df, operators=['+', '*'])
-        assert model.max_features == 2000
-
-    def test_max_features_custom(self, small_df):
-        from symantic import SymanticModel
-        model = SymanticModel(df=small_df, operators=['+', '*'], max_features=5000)
-        assert model.max_features == 5000
-
-    def test_validation_empty_df(self):
-        from symantic import SymanticModel
-        with pytest.raises(ValidationError, match="empty"):
-            SymanticModel(df=pd.DataFrame(), operators=['+'])
-
-    def test_validation_bad_operators(self, small_df):
-        from symantic import SymanticModel
-        with pytest.raises(ValidationError, match="Unsupported"):
-            SymanticModel(df=small_df, operators=['modulo'])
-
 
 class TestSymanticModelFit:
     """Smoke tests for model fitting."""
@@ -108,19 +79,13 @@ class TestSymanticModelFit:
         )
         result = model.fit()
         assert result is not None
-        assert isinstance(result, FitResult)
-        # Backward-compatible unpacking
+        # Fixed depth returns (rmse, equation, r2)
         rmse, equation, r2 = result
         assert isinstance(rmse, float)
         assert isinstance(equation, str)
         assert isinstance(r2, float)
         assert rmse >= 0
         assert r2 <= 1.0
-        # Also accessible via attributes
-        assert result.rmse == rmse
-        assert result.equation == equation
-        assert result.r2 == r2
-        assert result.pareto_front is None
 
     def test_auto_depth_fit(self, simple_linear_df):
         """Test auto-depth mode (n_expansion=None) with easy linear problem.
@@ -137,112 +102,10 @@ class TestSymanticModelFit:
             sis_features=5,
             metrics=[0.5, 0.9],  # Relaxed thresholds for fast convergence
         )
-        result = model.fit()
-        assert isinstance(result, FitResult)
-        # Backward-compatible unpacking
-        res, full_pareto = result
+        res, full_pareto = model.fit()
         assert 'utopia' in res
         assert 'expression' in res['utopia']
         assert 'rmse' in res['utopia']
         assert 'r2' in res['utopia']
         assert isinstance(full_pareto, pd.DataFrame)
         assert 'Equation' in full_pareto.columns
-        # Also accessible via attributes
-        assert result.pareto_front is not None
-        assert result.complexity is not None
-
-    def test_power_operator_fit(self, small_df):
-        """Test that ^2 unary operator works in fixed-depth mode.
-
-        Regression test for tensor shape mismatch when using ^N operators.
-        """
-        from symantic import SymanticModel
-        model = SymanticModel(
-            df=small_df,
-            operators=['+', '*', '^2'],
-            n_expansion=2,
-            n_term=2,
-            sis_features=5,
-        )
-        result = model.fit()
-        assert result is not None
-        assert isinstance(result, FitResult)
-        rmse, equation, r2 = result
-        assert isinstance(rmse, float)
-        assert rmse >= 0
-
-    def test_power_operator_auto_depth(self, simple_linear_df):
-        """Test that ^2 unary operator works in auto-depth mode.
-
-        Regression test for the DT5 notebook crash.
-        """
-        from symantic import SymanticModel
-        model = SymanticModel(
-            df=simple_linear_df,
-            operators=['+', '-', '*', '/', '^2'],
-            n_expansion=None,
-            n_term=2,
-            sis_features=5,
-            metrics=[0.5, 0.9],
-        )
-        result = model.fit()
-        assert isinstance(result, FitResult)
-        res, full_pareto = result
-        assert 'utopia' in res
-
-
-class TestLevelPruning:
-    """Tests for inter-level feature pruning in auto-depth mode."""
-
-    def test_level_pruning_auto_depth(self, simple_linear_df):
-        """level_pruning=True should complete without error in auto-depth."""
-        from symantic import SymanticModel
-        model = SymanticModel(
-            df=simple_linear_df,
-            operators=['+', '-', '*', '/'],
-            n_expansion=None,
-            n_term=2,
-            sis_features=5,
-            metrics=[0.5, 0.9],
-            level_pruning=True,
-        )
-        result = model.fit()
-        assert isinstance(result, FitResult)
-        assert result.r2 > 0.5
-
-    def test_level_pruning_with_l1(self, simple_linear_df):
-        """level_pruning + L1 regularization in auto-depth mode."""
-        from symantic import SymanticModel
-        model = SymanticModel(
-            df=simple_linear_df,
-            operators=['+', '-', '*', '/'],
-            n_expansion=None,
-            n_term=2,
-            sis_features=5,
-            metrics=[0.5, 0.9],
-            regularization='l1',
-            level_pruning=True,
-        )
-        result = model.fit()
-        assert isinstance(result, FitResult)
-        assert result.r2 > 0.5
-
-    def test_level_pruning_default_off(self, small_df):
-        """level_pruning defaults to False."""
-        from symantic import SymanticModel
-        model = SymanticModel(df=small_df, operators=['+', '*'])
-        assert model.level_pruning is False
-
-    def test_level_pruning_fixed_depth_ignored(self, small_df):
-        """level_pruning has no effect in fixed-depth mode (no crash)."""
-        from symantic import SymanticModel
-        model = SymanticModel(
-            df=small_df,
-            operators=['+', '*'],
-            n_expansion=2,
-            n_term=2,
-            sis_features=5,
-            level_pruning=True,
-        )
-        result = model.fit()
-        assert isinstance(result, FitResult)

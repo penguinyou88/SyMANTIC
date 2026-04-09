@@ -1,11 +1,8 @@
 README.md
 pyproject.toml
 symantic/__init__.py
-symantic/exceptions.py
 symantic/model.py
 symantic/pareto.py
-symantic/results.py
-symantic/validation.py
 symantic.egg-info/PKG-INFO
 symantic.egg-info/SOURCES.txt
 symantic.egg-info/dependency_links.txt
@@ -23,5 +20,3 @@ symantic/regression/screening.py
 tests/test_backwards_compat.py
 tests/test_model.py
 tests/test_pareto.py
-tests/test_results.py
-tests/test_validation.py

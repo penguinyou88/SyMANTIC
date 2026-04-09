@@ -37,7 +37,7 @@ from ..pareto import pareto
 
 class Regressor:
     
-    def __init__(self,x,y,names,complexity,dimension=None,sis_features=10,device='cpu',metrics =[0.06,0.995],disp=False,quantiles = None,**kwargs):
+    def __init__(self,x,y,names,complexity,dimension=None,sis_features=10,device='cpu',metrics =[0.06,0.995],disp=False,quantiles = None):
 
         '''
         ###################################################################################################################
@@ -233,119 +233,104 @@ class Regressor:
                 self.indices = torch.cat((self.indices,sorted_indices),dim=1)
     
             comb1 = self.indices[:,-1][~torch.isnan(self.indices[:,-1])]
-
+            
             combinations_generated = torch.combinations(comb1,(int(self.indices.shape[1])-1))
+            
+            
+            y_centered_clone = self.y_centered.unsqueeze(1).repeat(len(combinations_generated.tolist()),1,1).to(self.device)
+            
+            comb_tensor = self.x_standardized.T[combinations_generated.tolist(),:]
+            
+            x_p = comb_tensor.permute(0,2,1)
+            
+            comp2 = comp1[combinations_generated.to(torch.int)]
+            
+            comp2 = torch.sum(comp2,dim=1)
+            
+            comp2 = comp2+i
+            
+            has_nan_inf = torch.logical_or(
+                torch.isnan(x_p).any(dim=1, keepdim=True).any(dim=2, keepdim=True),
+                torch.isinf(x_p).any(dim=1, keepdim=True).any(dim=2, keepdim=True)
+                )
+            
+            x_p = torch.where(has_nan_inf,torch.zeros_like(x_p),x_p)
+            
+            try:
+                
+                sol,_,_,_ = torch.linalg.lstsq(x_p,y_centered_clone)
+                
+            except:
+                
+                x2_inv = torch.linalg.pinv(x_p)
+                
+                sol = x2_inv@y_centered_clone
+                
+                sol[torch.isnan(sol)] = 0
+            
 
-            # Process combinations in batches to bound memory usage
-            BATCH_SIZE = 10000
-            n_combs = combinations_generated.shape[0]
-
-            # Accumulators for batch results
-            all_features_rmse = []
-            all_features_r2 = []
-            all_comp2 = []
-            all_sol = []
-            all_mean = []
-            all_combs = []
-
-            for b_start in range(0, n_combs, BATCH_SIZE):
-                b_end = min(b_start + BATCH_SIZE, n_combs)
-                batch_combs = combinations_generated[b_start:b_end]
-                batch_size = batch_combs.shape[0]
-
-                y_batch = self.y_centered.unsqueeze(0).unsqueeze(2).expand(batch_size, -1, -1).to(self.device)
-
-                comb_tensor = self.x_standardized.T[batch_combs.tolist(),:]
-                x_p = comb_tensor.permute(0,2,1)
-
-                comp2_batch = comp1[batch_combs.to(torch.int)]
-                comp2_batch = torch.sum(comp2_batch, dim=1) + i
-
-                has_nan_inf = torch.logical_or(
-                    torch.isnan(x_p).any(dim=1, keepdim=True).any(dim=2, keepdim=True),
-                    torch.isinf(x_p).any(dim=1, keepdim=True).any(dim=2, keepdim=True)
-                    )
-                x_p = torch.where(has_nan_inf, torch.zeros_like(x_p), x_p)
-
-                try:
-                    sol_batch,_,_,_ = torch.linalg.lstsq(x_p, y_batch)
-                except:
-                    x2_inv = torch.linalg.pinv(x_p)
-                    sol_batch = x2_inv @ y_batch
-                    sol_batch[torch.isnan(sol_batch)] = 0
-
-                predicted = torch.matmul(x_p, sol_batch)
-                residuals = y_batch - predicted
-                square = torch.square(residuals)
-                mean_batch = torch.mean(square, dim=1, keepdim=True)
-                rmse_batch = torch.sqrt(mean_batch)[:,0,0]
-                r2_batch = 1 - (torch.sum(torch.square(residuals), dim=1) / torch.sum(torch.square(self.y_centered)))
-
-                all_features_rmse.append(rmse_batch)
-                all_features_r2.append(r2_batch)
-                all_comp2.append(comp2_batch)
-                all_sol.append(sol_batch)
-                all_mean.append(mean_batch)
-                all_combs.append(batch_combs)
-
-            # Concatenate batch results
-            features_rmse = torch.cat(all_features_rmse, dim=0)
-            features_r2 = torch.cat(all_features_r2, dim=0)
-            comp2 = torch.cat(all_comp2, dim=0)
-            sol = torch.cat(all_sol, dim=0)
-            mean = torch.cat(all_mean, dim=0)
-            combinations_generated = torch.cat(all_combs, dim=0)
-
+            predicted = torch.matmul(x_p,sol)
+            
+            residuals = y_centered_clone - predicted
+            
+            square = torch.square(residuals)
+            
+            mean = torch.mean(square,dim=1,keepdim=True)
+            
+            features_rmse = torch.sqrt(mean)[:,0,0]
+            
+            features_r2 = 1 - (torch.sum(torch.square(residuals),dim=1)/torch.sum(torch.square(self.y_centered)))
+            
             s= pareto(features_rmse,comp2).pareto_front()
-
+            
             coeff = torch.squeeze(sol).unsqueeze(1)
-
+            
             coeff = coeff.squeeze(1)
-
+            
             coeff1 = coeff.clone()
-
+            
             combinations = combinations_generated.long()
-
+            
             std = self.x_std[combinations]
-
+            
             coeff = coeff/std
-
+            
             xx = self.x_mean[combinations_generated.to(torch.int)]
             yy = self.x_std[combinations_generated.to(torch.int)]
-
+            
             nn = xx/yy
-
+            
             ss1 = nn*coeff1
-
+            
             ss2 = torch.sum(ss1,dim=1)
-
+            
             non_std_intercepts = self.y.mean().repeat(coeff1.shape[0]) -  ss2
-
+            
             self.earlier_pareto_rmse = torch.cat((self.earlier_pareto_rmse,features_rmse[s]),dim=0)
-
+            
             self.earlier_pareto_r2 = torch.cat((self.earlier_pareto_r2,features_r2[s].flatten()),dim=0)
-
+            
             self.earlier_pareto_complexity = torch.cat((self.earlier_pareto_complexity,comp2[s]))
-
-
+            
+            
             if coeff.shape[1] == self.pareto_coeffs.shape[1]:
-
+                
                 self.pareto_coeffs = torch.cat((self.pareto_coeffs,coeff[s]))
             else:
                 additional_columns = torch.full((self.pareto_coeffs.size(0), abs(coeff.shape[1]-self.pareto_coeffs.shape[1])), float('nan'))
-
+                
                 self.pareto_coeffs = torch.cat((self.pareto_coeffs,additional_columns),dim=1)
-
+                
                 self.pareto_coeffs = torch.cat((self.pareto_coeffs, coeff[s]))
-
+            
             self.pareto_intercepts = torch.cat((self.pareto_intercepts,non_std_intercepts[s]))
-
-
+            
+            
             for comb in combinations_generated[s]:
-
+                
                 self.pareto_names.append(np.array(self.names)[comb.to(torch.int)].tolist())
-
-
+                
+           
         min_value, min_index = torch.min(mean, dim=0)
   
         coefs_min = torch.squeeze(sol[min_index]).unsqueeze(1)
@@ -505,10 +490,10 @@ class Regressor:
                     x2 = x1.unsqueeze(0).T
 
                     y1 = self.y_centered.unsqueeze(1).unsqueeze(0)
-
+                    
                     if x2.shape[0] != y1.shape[0]:
-
-                        y1 = y1.expand(x2.shape[0], -1, -1)
+                        
+                        y1 = y1.repeat(x2.shape[0],1,1)
 
                     has_nan_inf = torch.logical_or(
                         torch.isnan(x2).any(dim=1, keepdim=True).any(dim=2, keepdim=True),
