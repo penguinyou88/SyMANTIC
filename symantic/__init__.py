@@ -5,6 +5,8 @@ and Parsimonious Model Discovery in Science and Beyond.
 
 from .model import SymanticModel
 from .pareto import pareto
+from .results import FitResult
+from .exceptions import FeatureSpaceLimitError, ValidationError
 
 # Feature expansion - qualified names to avoid namespace collision
 from .feature_expansion.nondimensional import feature_space_construction as NonDimensionalFeatureExpander

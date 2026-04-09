@@ -39,7 +39,7 @@ class feature_space_construction:
 
   ##############################################################################################################
   '''
-  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False):
+  def __init__(self,operators,df,no_of_operators=None,device='cpu',initial_screening=None,metrics=[0.06,0.995],disp=False,pareto=False,dimension=3,sis_features=20,feature_names=False,max_features=2000):
 
     '''
     ###########################################################################################
@@ -51,6 +51,8 @@ class feature_space_construction:
     ###########################################################################################
     '''
     self.no_of_operators = no_of_operators
+
+    self.max_features = max_features
 
     self.df = df
     '''
@@ -1508,20 +1510,21 @@ class feature_space_construction:
                 
                 
                 break
-            if i >=2 and self.df_feature_values.shape[1]>2000:
-                
-                print('Expanded feature space is::',self.df_feature_values.shape[1])
-                
-                
-                print('!!Warning:: Further feature expansions result in memory consumption, Please provide the input to consider feature expansion or to exit the run with the sparse models created!!!')
-                
-                response = input("Do you wish to continue (yes/no)? ").strip().lower()
-                
-                if response == 'no' or response == 'n': 
-                    
-                    print("Exiting based on user input.")
-                    
-                    break
+            if i >=2 and self.df_feature_values.shape[1]>self.max_features:
+
+                if self.disp:
+                    print(f'Expanded feature space ({self.df_feature_values.shape[1]} features) '
+                          f'exceeds max_features={self.max_features}. Stopping expansion.')
+
+                import warnings
+                warnings.warn(
+                    f"Feature expansion stopped: {self.df_feature_values.shape[1]} features "
+                    f"exceeds max_features={self.max_features}. Increase max_features to allow "
+                    f"deeper expansion.",
+                    stacklevel=2,
+                )
+
+                break
             i = i+1
 
 
