@@ -176,7 +176,7 @@ class SymanticModel:
           terms = [terms]
       
       equation_parts = []
-      
+
       for term, coeff in zip(terms, coeffs):
           if pd.isna(coeff):
               continue
@@ -185,19 +185,19 @@ class SymanticModel:
           elif coeff == -1:
               equation_parts.append(f"-{term}")
           else:
-              equation_parts.append(f"{coeff}*{term}")
-      
+              equation_parts.append(f"{coeff:.20f}*{term}")
+
       equation = " + ".join(equation_parts)
-      
+
       if intercept != 0:
-          
+
           if intercept > 0:
-              
-              equation = f"{equation} + {intercept}"
+
+              equation = f"{equation} + {intercept:.20f}"
 
           else:
 
-              equation = f"{equation} - {abs(intercept)}"
+              equation = f"{equation} - {abs(intercept):.20f}"
       
       return equation   
 

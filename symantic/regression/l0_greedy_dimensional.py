@@ -502,12 +502,17 @@ class Regressor:
                 earlier_pareto_complexity = torch.empty(0,)
                 
                 self.earlier_pareto_rmse = torch.cat((self.earlier_pareto_rmse,torch.sqrt(torch.mean(self.y_centered**2)).unsqueeze(0)),dim=0)
-                
+
                 self.earlier_pareto_complexity = torch.cat((self.earlier_pareto_complexity,torch.tensor([0.])))
-                
+
                 self.earlier_pareto_r2 = torch.cat((self.earlier_pareto_r2,torch.tensor([0.])),dim=0)
-                
+
                 self.pareto_names.extend([str(self.y_mean.tolist())])
+
+                # Add matching baseline entry to coeffs/intercepts so all
+                # arrays stay aligned (coeff=1 * "y_mean" + intercept=0 → y_mean)
+                self.pareto_coeffs = torch.full((1, 1), 1.0)
+                self.pareto_intercepts = torch.cat((self.pareto_intercepts, torch.tensor([0.])))
 
                 for i in range(len(quantile_values)):
                     

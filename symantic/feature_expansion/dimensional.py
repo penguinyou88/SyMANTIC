@@ -2911,15 +2911,7 @@ class feature_space_construction:
 
             _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=True)
             rmse1,equation1,r21,r,c,n,intercepts,coeffs,r2_value = _Reg(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics,**self._reg_kwargs).regressor_fit()
-            
-            additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
-            
-            additional_columns[:,0] = 1
-            
-            coeffs = torch.cat((additional_columns,coeffs))
-            
-            intercepts= torch.cat((torch.tensor([0]),intercepts))
-            
+
             s= pareto(r,c).pareto_front()
             
             complexity_final = c[s]
@@ -3108,16 +3100,7 @@ class feature_space_construction:
                 
                 _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=True)
                 rmse,equation,r2,r,c,n,intercepts,coeffs,r2_value = _Reg(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics,**self._reg_kwargs).regressor_fit()
-                
-                additional_columns = torch.full((1, abs(coeffs.shape[1])), float('nan'))
-                
-                additional_columns[:,0] = 1
-                
-                coeffs = torch.cat((additional_columns,coeffs))
-                
-                intercepts= torch.cat((torch.tensor([0]),intercepts))
-                
-                
+
                 s= pareto(r,c).pareto_front()
                 
                 complexity_final = c[s]
