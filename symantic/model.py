@@ -34,7 +34,7 @@ import matplotlib
 
 class SymanticModel:
 
-  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device=None,relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100):
+  def __init__(self,df,operators=None,multi_task = None,n_expansion=None,n_term=None,sis_features=20,device=None,relational_units = None,initial_screening = None,dimensionality=None,output_dim = None,metrics=[0.06,0.995],disp=False,pareto=False,max_features=None,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,level_pruning=False):
     """Initialize SymanticModel.
 
     Parameters
@@ -86,6 +86,12 @@ class SymanticModel:
         For L2: zero out coefficients below this fraction of max |coef|.
     n_alphas : int
         Number of alpha values in the regularization path. Default 100.
+    level_pruning : bool
+        When True, prune features between auto-depth expansion levels.
+        After regression at each level, keeps only the top `sis_features`
+        most correlated derived features (plus all original base features)
+        before expanding further. Caps memory growth for deep expansions.
+        Default False.
     """
     # Validate inputs
     validate_dataframe(df)
@@ -106,6 +112,7 @@ class SymanticModel:
         regularization=regularization, reg_alpha=reg_alpha,
         l1_ratio=l1_ratio, reg_threshold=reg_threshold, n_alphas=n_alphas,
     )
+    self.level_pruning = level_pruning
 
     self.df=df
 
@@ -254,7 +261,7 @@ class SymanticModel:
                 if self.no_of_operators==None:
 
                     st = time.time()
-                    rmse,equation,r2,_ = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_space()
+                    rmse,equation,r2,_ = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,level_pruning=self.level_pruning,**self._reg_kwargs).feature_space()
                     if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
                     equations.append(equation)
@@ -279,7 +286,7 @@ class SymanticModel:
         elif self.no_of_operators==None:
 
             st = time.time()
-            rmse,equation,r2,final = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_space()
+            rmse,equation,r2,final = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,self.metrics,dimension=self.dimension,sis_features=self.sis_features,disp=self.disp,pareto=self.pareto,max_features=self.max_features,level_pruning=self.level_pruning,**self._reg_kwargs).feature_space()
             if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
             return self._build_pareto_result(final)
@@ -312,7 +319,7 @@ class SymanticModel:
                 if self.no_of_operators==None:
 
                     st = time.time()
-                    rmse,equation,r2,final = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_expansion()
+                    rmse,equation,r2,final = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,level_pruning=self.level_pruning,**self._reg_kwargs).feature_expansion()
                     if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
                     equations.append(equation)
@@ -337,7 +344,7 @@ class SymanticModel:
         if self.no_of_operators==None:
 
             st = time.time()
-            rmse,equation,r2,final = dfcc.feature_space_construction(self.df,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,**self._reg_kwargs).feature_expansion()
+            rmse,equation,r2,final = dfcc.feature_space_construction(self.df,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,self.metrics,self.output_dim,disp=self.disp,pareto=self.pareto,max_features=self.max_features,level_pruning=self.level_pruning,**self._reg_kwargs).feature_expansion()
             if self.disp: print('************************************************ Autodepth regression completed in::', time.time()-st,'seconds ************************************************ \n')
 
             return self._build_pareto_result(final)

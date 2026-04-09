@@ -118,6 +118,43 @@ print(result.pareto_front)   # DataFrame with Loss, Complexity, R2, Equation
 model.plot_pareto_front()
 ```
 
+## Memory Management: Level Pruning
+
+In auto-depth mode (`n_expansion=None`), the feature space grows exponentially with each expansion level. With many features and operators, this can cause out-of-memory crashes because the full feature tensor is materialized before the `max_features` check runs.
+
+**`level_pruning=True`** solves this by pruning the feature space between expansion levels using SIS (Sure Independence Screening — `|X^T @ y|`, absolute correlation with target). After regression at each level, it keeps:
+- All **original base features** (always retained as building blocks)
+- The **top `sis_features * n_term` derived features** by SIS score
+
+This matches the regressor's internal screening budget and makes `max_features` still useful as a secondary cap on the expanded output:
+
+| | After expansion | After pruning | Next expansion |
+|---|-----------------|---------------|----------------|
+| **Level 1** (3 base, 4 ops) | 50 | 3 + 60 = 63 | ~8,000 |
+| **Level 2** | ~8,000 | 63 | ~8,000 |
+| **Without pruning** | 50 -> 5,000 -> millions | - | OOM |
+
+Additional stop conditions with pruning enabled:
+- **Stagnation**: stops if RMSE does not improve between levels
+- **Max depth**: hard cap of 10 expansion levels
+
+**Controlling the pruning budget**: `sis_features` and `n_term` together determine the retention count (`sis_features * n_term`). The same `sis_features` parameter also controls SIS screening inside the regressor (top `sis_features * n_term` features fed to regression). Increase `sis_features` to carry more features forward (better coverage, more memory); decrease for tighter memory control.
+
+```python
+# Aggressive pruning — tight memory, fast
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=10)
+
+# Looser pruning — more features survive, bigger search space
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=50)
+
+# Combine with fast regularization for large problems
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=20,
+                      regularization='l1', n_term=4)
+```
+
 ## Parameters
 
 | Parameter | Type | Default | Description |
@@ -134,6 +171,7 @@ model.plot_pareto_front()
 | `reg_threshold` | float | 1e-4 | L2: zero out coefficients below this fraction of max |
 | `n_alphas` | int | 100 | Number of alpha values in regularization path |
 | `max_features` | int or None | 2000 | Max features before stopping expansion |
+| `level_pruning` | bool | False | Prune features between auto-depth levels (see below) |
 | `metrics` | list | [0.06, 0.995] | [RMSE, R2] thresholds for auto-depth convergence |
 | `dimensionality` | list or None | None | Sympy dimension expressions for dimensional regression |
 | `output_dim` | sympy expr | None | Dimension of the target variable |

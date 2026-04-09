@@ -225,6 +225,63 @@ model = SymanticModel(df, operators=['+','-','*','/'])  # regularization='l0'
 
 ---
 
+## Inter-Level Feature Pruning
+
+**Goal**: Prevent out-of-memory crashes in auto-depth mode by capping feature space growth between expansion levels.
+
+### Problem
+In auto-depth mode, the feature space grows as $k \times (b \times k)^d$ per level. The `max_features` check happens **after** expansion completes, so OOM can occur inside `combinations()` before the check runs. For example, 500 features with 4 binary operators at level 2 generates C(500,2)*4 = ~500,000 new features in one shot.
+
+### Solution
+New `level_pruning=False` parameter on `SymanticModel`. When `True`, after regression at each expansion level, features are pruned using SIS (Sure Independence Screening — `|X^T @ y|`, absolute correlation with target). The pruned set contains:
+- **All original base features** (always retained as building blocks for next expansion)
+- **Top `sis_features * n_term` derived features** by SIS score
+
+This matches the regressor's internal screening budget and keeps `max_features` useful as a secondary cap on the expanded output.
+
+Additional stop conditions when pruning is enabled:
+- **Stagnation**: stops if RMSE does not improve between levels
+- **Max depth**: hard cap of 10 expansion levels
+
+### Memory impact
+
+With `sis_features=20`, `n_term=3`, 3 base features, 4 binary operators:
+- **Without pruning**: level 1 -> 50, level 2 -> ~5,000, level 3 -> millions (OOM)
+- **With pruning**: level 1 -> 50 -> prune to 63 (3 base + 60 top), level 2 -> ~8,000 -> prune to 63. Each level stays bounded. `max_features=2000` can also trigger as a secondary stop.
+
+### Controlling the pruning budget
+
+The `sis_features` and `n_term` parameters together determine the retention count (`sis_features * n_term`). The same formula is used inside the regressor for SIS screening, so pruning preserves exactly the features the regressor would consider.
+
+Increase `sis_features` to carry more features forward (better coverage, more memory); decrease it for tighter memory control.
+
+### Usage
+
+```python
+# Aggressive pruning — tight memory, fast
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=10)
+
+# Looser pruning — more features survive, bigger search space
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=50)
+
+# Combine with fast regularization for large problems
+model = SymanticModel(df, operators=['+', '-', '*', '/'],
+                      level_pruning=True, sis_features=20,
+                      regularization='l1', n_term=4)
+```
+
+### Files modified
+- `symantic/model.py` — added `level_pruning` parameter, threaded to all 4 auto-depth calls
+- `symantic/feature_expansion/nondimensional.py` — added `_prune_features()` method, called at 2 points in auto-depth loop (after level 1 and inside while loop)
+- `symantic/feature_expansion/dimensional.py` — same pattern, also prunes `self.dimensionality` list
+
+### Tests added
+- `tests/test_model.py` — 4 tests: auto-depth with pruning, pruning + L1, default off, fixed-depth ignored
+
+---
+
 ## Test Summary
 
 | Phase | Tests Added | Total |
@@ -234,5 +291,6 @@ model = SymanticModel(df, operators=['+','-','*','/'])  # regularization='l0'
 | Phase 3 | 3 | 44* |
 | Bug fix (^N) | 2 | 46 |
 | Phase 4 | 28 | 77 |
+| Level pruning | 4 | 81 |
 
 *3 existing tests were also updated in Phase 2 with additional assertions.

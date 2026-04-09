@@ -49,7 +49,7 @@ class feature_space_construction:
     '''
     
     def __init__(self,df,operators=None,relational_units = None,initial_screening = None,no_of_operators=None,device='cpu',
-                 dimensionality=None,metrics=[0.06,0.995],output_dim=None, test_x=None, test_y = None,test_variables=None,disp=False,pareto=False,max_features=10000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,**kwargs):
+                 dimensionality=None,metrics=[0.06,0.995],output_dim=None, test_x=None, test_y = None,test_variables=None,disp=False,pareto=False,max_features=10000,regularization='l0',reg_alpha=None,l1_ratio=0.5,reg_threshold=1e-4,n_alphas=100,level_pruning=False,**kwargs):
     
       '''
       ###########################################################################################
@@ -63,6 +63,8 @@ class feature_space_construction:
       self.no_of_operators = no_of_operators
 
       self.max_features = max_features
+
+      self.level_pruning = level_pruning
 
       self._reg_kwargs = dict(
           regularization=regularization, reg_alpha=reg_alpha,
@@ -2760,8 +2762,52 @@ class feature_space_construction:
         return df_screening1, screened_dimensions
     
     
+    def _prune_features(self):
+        """Prune derived features to top (sis_features * n_term) by SIS score.
+
+        Uses Sure Independence Screening: |X^T @ y| (absolute correlation with
+        target) to rank features.  Always retains the original base features
+        (first self.df.shape[1] columns).  Also prunes self.feature_names and
+        self.dimensionality in sync.
+        Only active when self.level_pruning is True.
+        """
+        n_base = self.df.shape[1]
+        n_total = self.df_feature_values.shape[1]
+        keep_k = self._pruning_sis * self._pruning_dim  # match regressor SIS budget
+        if n_total <= n_base + keep_k:
+            return
+
+        # SIS scores: |X^T @ y| for all features
+        y_centered = self.Target_column - self.Target_column.mean()
+        x_centered = self.df_feature_values - self.df_feature_values.mean(dim=0)
+        scores = torch.abs(torch.mm(y_centered.unsqueeze(0), x_centered)).flatten()
+        scores[torch.isnan(scores)] = 0.0
+
+        derived_scores = scores[n_base:]
+        k = min(keep_k, len(derived_scores))
+        _, top_derived = torch.topk(derived_scores, k=k)
+        top_derived_idx = top_derived + n_base
+
+        keep = torch.cat([torch.arange(n_base, device=self.device), top_derived_idx.to(self.device)])
+        keep, _ = torch.sort(keep)
+
+        self.df_feature_values = self.df_feature_values[:, keep]
+        keep_list = keep.tolist()
+        self.feature_names = [self.feature_names[i] for i in keep_list]
+        self.dimensionality = [self.dimensionality[i] for i in keep_list]
+        self.reference_tensor = self.reference_tensor[keep, :]
+        if self.operators_final.dim() == 1:
+            self.operators_final = self.operators_final[keep]
+        else:
+            self.operators_final = self.operators_final[keep, :]
+
+        if self.disp:
+            print(f'*** Level pruning (SIS top {self._pruning_sis}x{self._pruning_dim}={keep_k}): '
+                  f'{n_total} -> {len(keep)} features '
+                  f'({n_base} base + {k} derived) ***\n')
+
     def feature_expansion(self):
-        
+
         if self.no_of_operators == None:
             
             #if self.disp: print('Implementing Autodepth and number of terms functionality...')
@@ -2854,10 +2900,15 @@ class feature_space_construction:
             
             complexity[:self.df.shape[1]] = 1
             
+            # Save originals before dimensional regressor resets them to None
+            if not hasattr(self, '_pruning_sis') and self.level_pruning:
+                self._pruning_sis = self.sis_features if self.sis_features is not None else 20
+                self._pruning_dim = self.dimension if self.dimension is not None else 3
+
             self.dimension=None
-            
+
             self.sis_features=None
-            
+
             _Reg = get_regressor(self._reg_kwargs['regularization'], dimensional=True)
             rmse1,equation1,r21,r,c,n,intercepts,coeffs,r2_value = _Reg(self.df_feature_values,self.Target_column,self.feature_names,self.dimensionality,complexity,metrics=self.metrics,**self._reg_kwargs).regressor_fit()
             
@@ -2917,10 +2968,12 @@ class feature_space_construction:
                     self.update_pareto_coeff = torch.cat((self.update_pareto_coeff, coeffs))
             
             self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-            
-            
-            
-            if rmse1 <= self.rmse_metric and r21 >= self.r2_metric: 
+
+            # Prune feature space between levels to cap memory growth
+            if self.level_pruning:
+                self._prune_features()
+
+            if rmse1 <= self.rmse_metric and r21 >= self.r2_metric:
                 
                 if self.pareto: final_pareto='yes'
                 else: final_pareto = 'no'
@@ -3113,12 +3166,15 @@ class feature_space_construction:
                     
                 
                 self.update_pareto_intercepts=torch.cat((self.update_pareto_intercepts,intercepts[s]))
-                
-                
+
+                # Prune feature space between levels to cap memory growth
+                if self.level_pruning:
+                    self._prune_features()
+
                 if rmse <= self.rmse_metric and r2 >= self.r2_metric:
-                    
+
                     break
-                
+
                 if i >=2 and self.df_feature_values.shape[1]>self.max_features:
 
                     if self.disp:
@@ -3134,6 +3190,21 @@ class feature_space_construction:
                     )
 
                     break
+
+                # With level_pruning, feature count stays small so max_features
+                # never triggers.  Stop if no RMSE improvement or depth >= 10.
+                if self.level_pruning:
+                    if i >= 10:
+                        if self.disp:
+                            print(f'*** Level pruning: reached max depth {i}, stopping. ***\n')
+                        break
+                    if hasattr(self, '_prev_rmse') and rmse >= self._prev_rmse:
+                        if self.disp:
+                            print(f'*** Level pruning: RMSE did not improve '
+                                  f'({self._prev_rmse:.6f} -> {rmse:.6f}), stopping. ***\n')
+                        break
+                    self._prev_rmse = rmse
+
                 i = i+1
                 
             

@@ -189,3 +189,60 @@ class TestSymanticModelFit:
         assert isinstance(result, FitResult)
         res, full_pareto = result
         assert 'utopia' in res
+
+
+class TestLevelPruning:
+    """Tests for inter-level feature pruning in auto-depth mode."""
+
+    def test_level_pruning_auto_depth(self, simple_linear_df):
+        """level_pruning=True should complete without error in auto-depth."""
+        from symantic import SymanticModel
+        model = SymanticModel(
+            df=simple_linear_df,
+            operators=['+', '-', '*', '/'],
+            n_expansion=None,
+            n_term=2,
+            sis_features=5,
+            metrics=[0.5, 0.9],
+            level_pruning=True,
+        )
+        result = model.fit()
+        assert isinstance(result, FitResult)
+        assert result.r2 > 0.5
+
+    def test_level_pruning_with_l1(self, simple_linear_df):
+        """level_pruning + L1 regularization in auto-depth mode."""
+        from symantic import SymanticModel
+        model = SymanticModel(
+            df=simple_linear_df,
+            operators=['+', '-', '*', '/'],
+            n_expansion=None,
+            n_term=2,
+            sis_features=5,
+            metrics=[0.5, 0.9],
+            regularization='l1',
+            level_pruning=True,
+        )
+        result = model.fit()
+        assert isinstance(result, FitResult)
+        assert result.r2 > 0.5
+
+    def test_level_pruning_default_off(self, small_df):
+        """level_pruning defaults to False."""
+        from symantic import SymanticModel
+        model = SymanticModel(df=small_df, operators=['+', '*'])
+        assert model.level_pruning is False
+
+    def test_level_pruning_fixed_depth_ignored(self, small_df):
+        """level_pruning has no effect in fixed-depth mode (no crash)."""
+        from symantic import SymanticModel
+        model = SymanticModel(
+            df=small_df,
+            operators=['+', '*'],
+            n_expansion=2,
+            n_term=2,
+            sis_features=5,
+            level_pruning=True,
+        )
+        result = model.fit()
+        assert isinstance(result, FitResult)
