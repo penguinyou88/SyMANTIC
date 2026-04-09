@@ -282,6 +282,26 @@ model = SymanticModel(df, operators=['+', '-', '*', '/'],
 
 ---
 
+## Evaluate Method
+
+**Goal**: Port the `evaluate()` method from the old `src/model.py` to the new `symantic/model.py` for evaluating discovered equations on new data.
+
+### Method: `SymanticModel.evaluate(equation, df_test, custom_functions=None)`
+- Takes an equation string (as returned by `fit()`), a test DataFrame, and optional custom functions
+- Substitutes symbolic function names with numpy equivalents (exp→np.exp, sin→np.sin, ln→np.log, log→np.log10, etc.)
+- Supports all trig, hyperbolic, inverse trig/hyperbolic, abs, exp, log/ln functions
+- Returns `(predictions, substituted_equation)` or `(None, equation)` on error
+
+### Improvements over old implementation
+- **`^` → `**` conversion**: SyMANTIC equations use `^` for exponentiation (e.g. `(x1)^2`), but Python's `eval()` treats `^` as XOR. Added automatic conversion.
+- **No `globals()` pollution**: old version injected DataFrame columns into `globals()`, leaking state across calls. New version uses a restricted local namespace.
+- **Restricted `eval()`**: passes `{"__builtins__": {}}` to prevent access to Python builtins, reducing security surface.
+
+### Tests added
+- `tests/test_model.py` — 5 tests: simple linear, power operator (^), numpy functions (exp/sin), invalid equation, custom functions
+
+---
+
 ## Test Summary
 
 | Phase | Tests Added | Total |
@@ -292,5 +312,6 @@ model = SymanticModel(df, operators=['+', '-', '*', '/'],
 | Bug fix (^N) | 2 | 46 |
 | Phase 4 | 28 | 77 |
 | Level pruning | 4 | 81 |
+| Evaluate method | 5 | 86 |
 
 *3 existing tests were also updated in Phase 2 with additional assertions.

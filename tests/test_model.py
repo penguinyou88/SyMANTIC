@@ -246,3 +246,59 @@ class TestLevelPruning:
         )
         result = model.fit()
         assert isinstance(result, FitResult)
+
+
+class TestEvaluate:
+    """Tests for the evaluate() method."""
+
+    def test_evaluate_simple_equation(self, simple_linear_df):
+        """Evaluate a simple linear equation on test data."""
+        from symantic import SymanticModel
+        model = SymanticModel(df=simple_linear_df, operators=['+', '-'])
+        df_test = simple_linear_df.copy()
+        # y = 2*x1 + 3*x2
+        preds, eq = model.evaluate("2*x1 + 3*x2", df_test)
+        assert preds is not None
+        expected = 2 * df_test['x1'] + 3 * df_test['x2']
+        np.testing.assert_allclose(preds, expected, rtol=1e-10)
+
+    def test_evaluate_with_power(self, simple_linear_df):
+        """Evaluate equation with ^ (caret) exponentiation."""
+        from symantic import SymanticModel
+        model = SymanticModel(df=simple_linear_df, operators=['+', '-'])
+        df_test = simple_linear_df.copy()
+        preds, eq = model.evaluate("x1^2 + x2", df_test)
+        assert preds is not None
+        expected = df_test['x1'] ** 2 + df_test['x2']
+        np.testing.assert_allclose(preds, expected, rtol=1e-10)
+        assert '**' in eq  # ^ should be converted to **
+
+    def test_evaluate_with_numpy_functions(self):
+        """Evaluate equation containing math functions (exp, sin, log)."""
+        from symantic import SymanticModel
+        df = pd.DataFrame({'y': [1, 2, 3], 'x': [0.1, 0.5, 1.0]})
+        model = SymanticModel(df=df, operators=['+', 'exp'])
+        preds, eq = model.evaluate("exp(x) + sin(x)", df)
+        assert preds is not None
+        expected = np.exp(df['x']) + np.sin(df['x'])
+        np.testing.assert_allclose(preds, expected, rtol=1e-10)
+
+    def test_evaluate_invalid_equation(self, simple_linear_df):
+        """Invalid equation returns None without crashing."""
+        from symantic import SymanticModel
+        model = SymanticModel(df=simple_linear_df, operators=['+'])
+        preds, eq = model.evaluate("undefined_var + 1", simple_linear_df)
+        assert preds is None
+
+    def test_evaluate_custom_functions(self):
+        """Evaluate with user-provided custom functions."""
+        from symantic import SymanticModel
+        df = pd.DataFrame({'y': [1, 4, 9], 'x': [1, 2, 3]})
+        model = SymanticModel(df=df, operators=['+'])
+        preds, eq = model.evaluate(
+            "my_square(x)",
+            df,
+            custom_functions={'my_square': lambda v: v ** 2},
+        )
+        assert preds is not None
+        np.testing.assert_allclose(preds, df['x'] ** 2, rtol=1e-10)

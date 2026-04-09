@@ -101,7 +101,7 @@ class SymanticModel:
           elif coeff == -1:
               equation_parts.append(f"-{term}")
           else:
-              equation_parts.append(f"{coeff:.4f}*{term}")
+              equation_parts.append(f"{coeff}*{term}")
       
       equation = " + ".join(equation_parts)
       
@@ -109,11 +109,11 @@ class SymanticModel:
           
           if intercept > 0:
               
-              equation = f"{equation} + {intercept:.4f}"
+              equation = f"{equation} + {intercept}"
           
           else:
               
-              equation = f"{equation} - {abs(intercept):.4f}"
+              equation = f"{equation} - {abs(intercept)}"
       
       return equation   
 
@@ -163,7 +163,7 @@ class SymanticModel:
                     
                     x,y,names,complexity = fcc.feature_space_construction(self.operators,df1,self.no_of_operators,self.device,self.initial_screening,disp=self.disp,pareto=self.pareto).feature_space()
                     
-                    from .Regressor import Regressor
+                    from Regressor import Regressor
                     
                     rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  Regressor(x,y,names,complexity,self.dimension,self.sis_features,self.device).regressor_fit()
                     
@@ -220,7 +220,7 @@ class SymanticModel:
             
             x,y,names,complexity = fcc.feature_space_construction(self.operators,self.df,self.no_of_operators,self.device,self.initial_screening,disp=self.disp).feature_space()
                     
-            from .Regressor import Regressor
+            from Regressor import Regressor
                     
             rmse, equation,r2,r,c,n,intercepts,coeffs,_ =  Regressor(x,y,names,complexity,self.dimension,self.sis_features,self.device).regressor_fit()
                     
@@ -268,7 +268,7 @@ class SymanticModel:
                     
                     x,y,names,dim,complexity = dfcc.feature_space_construction(df1,self.operators,self.relational_units,self.initial_screening,self.no_of_operators,self.device,self.dimensionality,disp=self.disp,pareto=self.pareto).feature_expansion()
                     
-                    from .DimensionalRegressor import Regressor
+                    from DimensionalRegressor import Regressor
                     
                     rmse,equation,r2,_,_,_,_,_,_ = Regressor(x,y,names,dim,complexity,self.dimension,self.sis_features,self.device,self.output_dim,disp=self.disp,pareto=self.pareto).regressor_fit()
                     
@@ -356,5 +356,58 @@ class SymanticModel:
     plt.title('Pareto Frontier')
     
     plt.show()
+  
+
+  def evaluate(self,equation, df_test, custom_functions=None):
+    import re
+    # Register columns from df_test as global variables
+    for col in df_test.columns:
+        globals()[col] = df_test[col]
+
+    # Register custom functions if provided
+    if custom_functions:
+        for name, func in custom_functions.items():
+            globals()[name] = func
+
+    # Substitute standard functions with numpy equivalents
+    equation = re.sub(r'\bexp\b', 'np.exp', equation)
+    equation = re.sub(r'\bcos\b', 'np.cos', equation)
+    equation = re.sub(r'\bsin\b', 'np.sin', equation)
+    equation = re.sub(r'\btan\b', 'np.tan', equation)
+    equation = re.sub(r'\bcsc\b', '1/np.sin', equation)
+    equation = re.sub(r'\bsec\b', '1/np.cos', equation)
+    equation = re.sub(r'\bcot\b', '1/np.tan', equation)
+
+    equation = re.sub(r'\basin\b', 'np.arcsin', equation)
+    equation = re.sub(r'\bacos\b', 'np.arccos', equation)
+    equation = re.sub(r'\batan\b', 'np.arctan', equation)
+    equation = re.sub(r'\bacsc\b', '1/np.arcsin', equation)
+    equation = re.sub(r'\basec\b', '1/np.arccos', equation)
+    equation = re.sub(r'\bacot\b', '1/np.arctan', equation)
+
+    equation = re.sub(r'\bsinh\b', 'np.sinh', equation)
+    equation = re.sub(r'\bcosh\b', 'np.cosh', equation)
+    equation = re.sub(r'\btanh\b', 'np.tanh', equation)
+    equation = re.sub(r'\bcsch\b', '1/np.sinh', equation)
+    equation = re.sub(r'\bsech\b', '1/np.cosh', equation)
+    equation = re.sub(r'\bcoth\b', '1/np.tanh', equation)
+
+    equation = re.sub(r'\basinh\b', 'np.arcsinh', equation)
+    equation = re.sub(r'\bacosh\b', 'np.arccosh', equation)
+    equation = re.sub(r'\batanh\b', 'np.arctanh', equation)
+
+    equation = re.sub(r'\babs\b', 'np.abs', equation)
+    equation = re.sub(r'\blog\b', 'np.log10', equation)
+    equation = re.sub(r'\bln\b', 'np.log', equation)
+
+    
+    try:
+        p = eval(equation)
+    except Exception as e:
+        print(f"Error evaluating equation: {e}")
+        return None, equation
+
+    return p, equation
+
 
 

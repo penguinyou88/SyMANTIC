@@ -383,4 +383,73 @@ class SymanticModel:
     
     plt.show()
 
+  def evaluate(self, equation, df_test, custom_functions=None):
+    """Evaluate a symbolic equation on new data.
 
+    Parameters
+    ----------
+    equation : str
+        Equation string as returned by ``fit()``.
+    df_test : pd.DataFrame
+        Test data whose column names match the variable names in *equation*.
+    custom_functions : dict or None
+        Mapping of ``{name: callable}`` for any user-defined functions
+        appearing in the equation.
+
+    Returns
+    -------
+    predictions : pd.Series or None
+        Predicted values, or ``None`` if evaluation fails.
+    equation : str
+        The (numpy-substituted) equation that was evaluated.
+    """
+    import re
+
+    # Build a local namespace with column data + numpy helpers
+    local_ns = {col: df_test[col] for col in df_test.columns}
+    local_ns['np'] = np
+
+    if custom_functions:
+        local_ns.update(custom_functions)
+
+    # Convert ^ to ** for Python exponentiation
+    equation = re.sub(r'\^', '**', equation)
+
+    # Substitute symbolic function names with numpy equivalents
+    equation = re.sub(r'\bexp\b', 'np.exp', equation)
+    equation = re.sub(r'\bcos\b', 'np.cos', equation)
+    equation = re.sub(r'\bsin\b', 'np.sin', equation)
+    equation = re.sub(r'\btan\b', 'np.tan', equation)
+    equation = re.sub(r'\bcsc\b', '1/np.sin', equation)
+    equation = re.sub(r'\bsec\b', '1/np.cos', equation)
+    equation = re.sub(r'\bcot\b', '1/np.tan', equation)
+
+    equation = re.sub(r'\basin\b', 'np.arcsin', equation)
+    equation = re.sub(r'\bacos\b', 'np.arccos', equation)
+    equation = re.sub(r'\batan\b', 'np.arctan', equation)
+    equation = re.sub(r'\bacsc\b', '1/np.arcsin', equation)
+    equation = re.sub(r'\basec\b', '1/np.arccos', equation)
+    equation = re.sub(r'\bacot\b', '1/np.arctan', equation)
+
+    equation = re.sub(r'\bsinh\b', 'np.sinh', equation)
+    equation = re.sub(r'\bcosh\b', 'np.cosh', equation)
+    equation = re.sub(r'\btanh\b', 'np.tanh', equation)
+    equation = re.sub(r'\bcsch\b', '1/np.sinh', equation)
+    equation = re.sub(r'\bsech\b', '1/np.cosh', equation)
+    equation = re.sub(r'\bcoth\b', '1/np.tanh', equation)
+
+    equation = re.sub(r'\basinh\b', 'np.arcsinh', equation)
+    equation = re.sub(r'\bacosh\b', 'np.arccosh', equation)
+    equation = re.sub(r'\batanh\b', 'np.arctanh', equation)
+
+    equation = re.sub(r'\babs\b', 'np.abs', equation)
+    equation = re.sub(r'\blog\b', 'np.log10', equation)
+    equation = re.sub(r'\bln\b', 'np.log', equation)
+
+    try:
+        p = eval(equation, {"__builtins__": {}}, local_ns)
+    except Exception as e:
+        print(f"Error evaluating equation: {e}")
+        return None, equation
+
+    return p, equation
