@@ -37,7 +37,8 @@ symantic/                               # Main package (renamed from src/)
 └── dynamics/                           # Dynamic problem support (Phase 5 — planned)
 tests/                                  # pytest test suite
 docs/scaling.md                         # Computational scaling guide
-examples/notebooks/                     # Jupyter notebook examples
+docs/implemented_changes.md             # Changelog of all improvements
+examples/                               # Jupyter notebook examples
 ```
 
 The old `src/` directory provides a backward-compatible shim with deprecation warnings.
