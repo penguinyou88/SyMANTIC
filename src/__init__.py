@@ -1,21 +1,21 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Created on Wed May 17 09:22:50 2023
+Backward-compatibility shim for the old src/ import path.
 
-@author: muthyala.7
+The package has been restructured. Please use:
+    from symantic import SymanticModel
+
+instead of:
+    from src import SymanticModel
 """
+import warnings
 
+warnings.warn(
+    "Importing from 'src' is deprecated. Use 'from symantic import SymanticModel' instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-from .DimensionalFeatureSpaceConstruction import feature_space_construction
-
-from .DimensionalRegressor import Regressor
-
-from .FeatureSpaceConstruction import feature_space_construction
-
-from .pareto_new import pareto
-
-from .Regressor import Regressor
-
-from .model import SymanticModel
+from symantic import SymanticModel
+from symantic import pareto
+from symantic import feature_space_construction
+from symantic import Regressor

@@ -1,0 +1,16 @@
+local_test/
+scratch/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.bak
+*.tmp
+*.swp
+.DS_Store
+.vscode/
+*.egg-info/
